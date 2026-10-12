@@ -26,13 +26,15 @@ py -3.12 -m venv .venv
 1. 上傳 JPG／JPEG／PNG／WEBP，可一次多張；或載入 5 張自行繪製的測試示意圖。
 2. 在照片列點選照片，拖曳縮圖排序。觸控或鍵盤可使用前移／後移按鈕。刪除目前照片與單張替換在照片管理區。
 3. 設定每張秒數。預設「完整照片（空白處留黑）」等比例置中保留整張照片，橫式照片上下留黑；需要裁切時，可改選「填滿畫面（裁切照片）」再使用縮放及水平／垂直裁切滑桿。
-4. 按「新增標籤」，修改文字。拖曳畫面上的標籤；拖曳圓形定位點可單獨移動物件位置。兩種位置都以最終畫面相對比例儲存。
+4. 按「新增標籤」立即顯示完整標籤，直接修改文字及樣式。拖曳畫面上的標籤；拖曳圓形定位點可單獨移動物件位置。這些操作只更新前端草稿，不觸發 Python 同步。
 5. 展開樣式與動畫設定：大小、字色、背景、透明度、圓角、連接線、出現／消失時間與進場時長。停留時間為 `消失時間 - 出現時間 - 進場時長`；標籤可錯開出現。
 6. 使用播放／時間軸預覽整部影片。編輯模式固定顯示全部標籤，選中框與定位點操作提示不會輸出到影片。
-7. 優先選擇編輯器內「瀏覽器 MP4」：支援時以本機 Canvas 錄製，需保持頁面前景。若不支援 H.264／MP4、背景中斷或錄製失敗，使用下方「輸出 H.264 MP4」；預設 Full HD／30 FPS，也可選 720p 或 360p。
-8. 完成後播放結果、下載。修改專案會使舊的伺服器輸出失效，避免誤下載過期影片。清空工作階段可移除照片與影片。
+7. 編輯完成後按時間軸右側「套用變更」。未套用時使用本機字型即時預覽；套用後校準為與影片輸出相同的標籤素材。切換照片與一般 Streamlit rerun 都會保留草稿。
+8. 按「瀏覽器 MP4」或下方「輸出 H.264 MP4」都會先確認最新草稿已套用，再開始輸出。瀏覽器錄製需保持頁面前景；FFmpeg 預設 Full HD／30 FPS，也可選 720p 或 360p。完成後播放、下載，清空工作階段可移除照片與影片。
 
-所有編輯自動同步到目前工作階段。重新整理或連線斷開可能遺失內容，第一版沒有永久專案存檔。照片上傳至 Streamlit 伺服器並只存在記憶體；FFmpeg 暫存壓縮影片會清除。
+標籤、排序與構圖先保留在 JavaScript 本地狀態，並將純文字／座標草稿存入同分頁的 `sessionStorage`（不含照片），元件重建時可恢復。只有「套用變更」及輸出前才整批同步 Python，以事件 ID 與版本號防止重複套用、舊資料覆蓋新編輯。同步失敗保留草稿並顯示錯誤。輸出時只使用已確認的最新設定。
+
+照片上傳至 Streamlit 伺服器並只存在目前工作階段記憶體；FFmpeg 暫存壓縮影片會清除。整頁重新整理、連線斷開或關閉分頁仍可能令伺服器照片工作階段失效，第一版沒有永久專案存檔。瀏覽器不允許 sessionStorage 時，介面提示先套用再離開此頁。未套用草稿時請勿使用先前下載結果代替重新輸出。
 
 ## 測試
 
@@ -42,6 +44,7 @@ py -3.12 -m venv .venv
 node --check frontend\editor.js
 node --test tests\animation.test.cjs
 node --test tests\photo-layout.test.cjs
+node --test tests\draft-state.test.cjs tests\editor-events.test.cjs
 ```
 
 影片驗證會建立 `artifacts/verification.mp4`、截圖與 JSON 結果（已忽略，不上傳 Git）。使用 5 張自行繪製的室內空間示意，每張 4 秒、中文標籤從左滑入；驗證 H.264、1080×1920、20 秒、600 影格及完整解碼。若電腦較慢可先用 `--width 360`。執行驗證腳本產生的示意圖不代表真實客戶案例或 Gemini 辨識。
@@ -67,13 +70,17 @@ studio/rendering.py       等比例裁切、共用 PNG 標籤、逐影格合成
 studio/animation.py       可重用動畫時間公式
 studio/export.py          FFmpeg 能力檢查、負載控制、H.264 輸出
 studio/component.py       自訂元件 Python 介面
+studio/sync.py            批次同步、版本檢查、事件去重與輸出握手
 frontend/index.html       編輯器版面
 frontend/editor.js        拖曳、預覽、照片排序、瀏覽器錄製
+frontend/draft-state.js   前端草稿、跨 rerun 恢復與回覆合併
+frontend/label-raster.js  未套用標籤的即時本機繪製
 frontend/animation.js     前端動畫公式
 templates/items.json      第一版模板設定
 scripts/verify_export.py  實際 20 秒影片驗證
 tests/                    重要資料與動畫測試
 docs/FEASIBILITY.md        技術決策與已知限制
+docs/EDITOR_SYNC.md        同步架構、原因與效能驗證範圍
 .streamlit/               主題、Secrets 範例
 ```
 

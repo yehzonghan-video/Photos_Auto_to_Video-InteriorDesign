@@ -7,7 +7,7 @@
 </head>
 <body>
 <section class="studio">
-  <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span></div>
+  <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span><button id="applyChanges" class="primary">套用變更</button></div>
   <div id="photos" class="photos" aria-label="照片播放順序"></div>
   <div class="editor-grid">
     <section class="preview-panel">
@@ -50,9 +50,9 @@
         </details>
         <div class="row"><button id="deleteLabel" class="danger">刪除此標籤</button><span id="position" class="hint"></span></div>
       </div>
-      <p id="status" role="status" class="status">編輯自動同步到目前工作階段</p>
+      <p id="status" role="status" class="status">編輯暫存在此頁；完成後按「套用變更」。輸出前會自動套用。</p>
     </aside>
   </div>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="editor.js"></script>
 </body></html>

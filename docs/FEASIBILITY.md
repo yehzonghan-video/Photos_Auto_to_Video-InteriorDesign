@@ -6,6 +6,8 @@
 2. **可靠替代方案 Pillow + FFmpeg/libx264**：從原始圖片依序產生影格，以 pipe 送入編碼器；固定 30 FPS、H.264、yuv420p、MP4 faststart。沒有影片 API 費用。伺服器 CPU／記憶體與渲染時間仍有成本限制。
 3. **兩個路徑共用照片、PNG 標籤素材、座標及動畫公式**：避免瀏覽器字型排版與伺服器字型不一致。Canvas 的動畫由 JavaScript 計算，伺服器使用對應 Python 模組；測試比較兩者的姿態公式。瀏覽器錄製受排程影響，若需要固定影格率請使用 FFmpeg。
 
+標籤編輯改採前端草稿與批次套用：未套用時用本機字型即時顯示，套用後回傳共用 PNG 校準預覽。兩個輸出入口都會先確認最新草稿套用完成。詳見 [同步架構與測試](EDITOR_SYNC.md)。
+
 ## Streamlit Community Cloud
 
 官方支援 `requirements.txt` Python 依賴與 `packages.txt` 中的 Debian apt 套件。本專案宣告 `ffmpeg`、`fonts-noto-cjk`，啟動時實際檢查 FFmpeg 是否提供 `libx264`、中文字型是否存在。Windows 沒有 FFmpeg 時使用 imageio-ffmpeg 隨套件提供的執行檔。

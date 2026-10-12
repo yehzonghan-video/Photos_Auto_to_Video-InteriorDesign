@@ -1,12 +1,14 @@
 """第一階段：手動編輯可操作的案例影片；無登入、無持久化照片。"""
 from pathlib import Path
 import time
+import uuid
 
 import streamlit as st
 
 from studio.component import editor, payload
 from studio.export import capabilities, export_video
-from studio.models import MAX_PHOTOS, MAX_SESSION_BYTES, load_photo, update_project
+from studio.models import MAX_PHOTOS, MAX_SESSION_BYTES, load_photo
+from studio.sync import consume_editor_event
 from studio.rendering import font_path, template_config
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
@@ -20,11 +22,24 @@ h1{font-size:2rem!important;letter-spacing:.025em}h2{font-size:1.3rem!important}
 .workflow{font-size:13px;padding:13px 18px;border:1px solid #ded8cb;border-radius:9px;margin:16px 0 20px;color:#58694e;background:#f0ece3}
 </style>""", unsafe_allow_html=True)
 
-defaults = dict(photos=[], uploader_epoch=0, ack=None, output=None, project_payload=None,
-                revision=0, output_seconds=None, notice=None, notice_error=False)
+defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
+                revision=0, output_seconds=None, notice=None, notice_error=False,
+                editor_session=uuid.uuid4().hex, editor_seen=[], editor_response=None,
+                editor_assets={}, pending_export=None, editor_busy=False)
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+
+# 升級元件協定時保留照片，只清除舊版素材 payload 與舊 widget 事件。
+if st.session_state.get("editor_protocol") != 2:
+    st.session_state.editor_protocol = 2
+    st.session_state.project_payload = None
+    st.session_state.editor_assets = {}
+    st.session_state.editor_response = None
+    st.session_state.pop("studio_editor", None)
+
+# 新的元件值已在 rerun 前寫入 widget Session State，在回傳元件參數前完成交易。
+consume_editor_event(st.session_state, st.session_state.get("studio_editor"))
 
 
 def invalidate():
@@ -67,7 +82,12 @@ with st.sidebar:
     st.caption("照片僅存在目前工作階段記憶體，重新整理可能遺失。使用雲端時，照片會傳至 Streamlit 伺服器。")
     if st.button("清空目前工作階段", use_container_width=True):
         st.session_state.photos = []
-        st.session_state.ack = None
+        st.session_state.editor_session = uuid.uuid4().hex
+        st.session_state.editor_assets = {}
+        st.session_state.editor_response = None
+        st.session_state.pending_export = None
+        st.session_state.editor_busy = False
+        st.session_state.pop("render_job", None)
         st.session_state.uploader_epoch += 1
         invalidate()
         st.rerun()
@@ -123,7 +143,7 @@ with st.expander("替換單張照片", expanded=False):
     target_id = st.selectbox("要替換的照片", [p.id for p in photos],
                             format_func=lambda ident: next(f"{i+1} · {p.name}" for i,p in enumerate(photos) if p.id == ident))
     replacement = st.file_uploader("選擇替換照片", type=["jpg", "jpeg", "png", "webp"], key=f"replacement_{st.session_state.uploader_epoch}")
-    st.caption("保留此張照片的標籤、秒數與裁切設定；替換後請確認定位點與構圖。")
+    st.caption("替換後保留此張照片的標籤與構圖設定，請重新確認定位點。")
     if st.button("套用替換照片", disabled=replacement is None):
         try:
             fresh = load_photo(replacement.name, replacement.getvalue())
@@ -142,54 +162,52 @@ with st.expander("替換單張照片", expanded=False):
             st.error(str(exc))
 
 st.subheader("02　編輯畫面與裝修標籤")
-st.caption("點選縮圖切換照片。標籤與圓點可分開拖曳，進階設定可收合。")
+st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成後按「套用變更」；輸出前會自動套用最新設定。")
 try:
     if st.session_state.project_payload is None:
-        st.session_state.project_payload = payload(photos)
-    event = editor(project=st.session_state.project_payload, ack=st.session_state.ack,
-                   revision=st.session_state.revision, key="studio_editor", default=None)
-    if isinstance(event, dict) and event.get("nonce") and event["nonce"] != st.session_state.ack:
-        st.session_state.ack = event["nonce"]
-        try:
-            if event.get("action") not in ("update", "delete_photo"):
-                raise ValueError("此編輯操作不受支援。")
-            updated = update_project(photos, event["photos"])
-            if event["action"] == "delete_photo":
-                updated = [p for p in updated if p.id != event.get("target")]
-            st.session_state.photos = updated
-            invalidate()
-        except (ValueError, KeyError, TypeError) as exc:
-            st.session_state.notice = "編輯未套用：" + str(exc)
-            st.session_state.notice_error = True
-        st.rerun()
+        st.session_state.project_payload = payload(photos, st.session_state.editor_assets)
+    request = st.session_state.pending_export
+    editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
+           response=st.session_state.editor_response, revision=st.session_state.revision,
+           export_request=request["id"] if request else None, busy=st.session_state.editor_busy,
+           key="studio_editor", default=None)
 except (RuntimeError, OSError) as exc:
     st.error(str(exc))
     st.stop()
 
 st.subheader("03　輸出案例影片")
-st.caption("先確認編輯器顯示「已同步」。可優先使用上方瀏覽器 MP4；下方 FFmpeg 提供固定 30 FPS 的 H.264 輸出。")
+st.caption("按輸出後會先套用此頁的最新編輯，再以固定 30 FPS 生成 H.264 MP4。")
 options, summary = st.columns([2, 3])
 with options:
     size = st.selectbox("影片解析度", [1080, 720, 360],
                         format_func=lambda w: f"{w} × {w*16//9}" + (" · Full HD" if w == 1080 else " · 較快輸出"))
-    render_clicked = st.button("輸出 H.264 MP4", type="primary", use_container_width=True)
+    render_clicked = st.button("輸出 H.264 MP4", type="primary", use_container_width=True,
+                               disabled=st.session_state.editor_busy or st.session_state.pending_export is not None)
 with summary:
     st.markdown(f"**{len(photos)} 張照片 · {sum(p.duration for p in photos):.1f} 秒 · 9:16**")
     st.caption("免費本機／伺服器渲染。照片不寫入永久目錄；產生的壓縮影片暫存檔會在完成或失敗後清除。")
 
 if render_clicked:
+    st.session_state.pending_export = dict(id=uuid.uuid4().hex, width=size)
+    st.rerun()
+
+job = st.session_state.pop("render_job", None)
+if job:
     st.session_state.output = None
     started = time.monotonic()
     bar = st.progress(0., text="正在準備影片素材…")
     try:
-        data = export_video(photos, size, size*16//9,
+        data = export_video(photos, job["width"], job["width"]*16//9,
                             progress=lambda value, message: bar.progress(value, text=message))
         st.session_state.output = data
         st.session_state.output_seconds = round(time.monotonic() - started, 1)
     except (RuntimeError, ValueError, OSError, TimeoutError) as exc:
         bar.empty()
-        st.error(f"影片未完成：{exc}")
-        st.info("可先減少照片或選擇 720p，亦可使用支援 MP4 的瀏覽器本機輸出。")
+        st.session_state.notice = f"影片未完成：{exc}。可選擇 720p 或減少照片重試。"
+        st.session_state.notice_error = True
+    finally:
+        st.session_state.editor_busy = False
+    st.rerun()
 
 if st.session_state.output:
     st.success(f"影片已完成，輸出耗時 {st.session_state.output_seconds} 秒。")

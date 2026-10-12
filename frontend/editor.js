@@ -4,9 +4,10 @@ const W = 1080, H = 1920, ctx = $('canvas').getContext('2d');
 let photos = [], selectedPhoto = null, selectedLabel = null, imageCache = new Map(), tileCache = new Map();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
-let pending = false, localDirty = false, lastSent = null, photoDragId = null;
-let saveTimer = null;
-let lastRevision = null, recordingFailure = null;
+const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
+const waiters=new Map();
+let photoDragId=null, editRaf=0, serverBusy=false, preparing=false;
+let lastRevision=null, recordingFailure=null, activeExportRequest=null, receivedSession=null, storageFailed=false;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const photo = () => photos.find(p => p.id === selectedPhoto) || photos[0];
 const label = () => photo()?.labels.find(l => l.id === selectedLabel);
@@ -29,18 +30,46 @@ function validProject() {
   }
   return true;
 }
-function save(action = 'update', target = null) {
-  clearTimeout(saveTimer);
-  if (!validProject()) return false;
-  clearBrowserResult();
-  localDirty = false;
-  pending = true;
-  lastSent = crypto.randomUUID();
-  status('正在同步編輯…');
-  post('streamlit:setComponentValue', {value:{nonce:lastSent, photos:metadata(), action, target}, dataType:'json'});
-  return true;
+function persistDraft() {
+  if(!draft.session)return;
+  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel})));storageFailed=false;}
+  catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
-function queueSave() {clearTimeout(saveTimer);saveTimer=setTimeout(()=>save(),350);}
+window.addEventListener('pagehide',persistDraft);
+function syncStatus() {
+  if(serverBusy)status('正在輸出已套用的影片設定…');
+  else if(preparing)status('輸出前正在套用最新設定…');
+  else if(draft.pending)status('正在套用變更，可繼續編輯…');
+  else status(draft.dirty?'有未套用變更；切換照片會保留，輸出前會自動套用。':'已套用變更，預覽已與輸出設定對齊。');
+  if(storageFailed){$('status').textContent+=' 此瀏覽器無法暫存草稿，離開前請先套用。';$('status').classList.add('error');}
+  $('applyChanges').disabled=!!draft.pending||recording||preparing||serverBusy;
+}
+function markEdited(persist=true) {
+  draft.touch(photos);clearBrowserResult();
+  if(persist)persistDraft();
+  syncStatus();
+}
+function queueDraw(){if(!editRaf)editRaf=requestAnimationFrame(()=>{editRaf=0;info();draw();});}
+function synchronize(action='apply',request=null) {
+  if(!validProject())return Promise.reject(new Error('請先修正標籤文字與時間設定。'));
+  if(draft.pending)return Promise.reject(new Error('正在套用上一批變更，請稍候再試。'));
+  const event=draft.snapshot(crypto.randomUUID(),action,request);persistDraft();syncStatus();
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{
+      waiters.delete(event.nonce);
+      if(draft.pending?.nonce===event.nonce){draft.pending=null;draft.dirty=true;persistDraft();syncStatus();}
+      reject(new Error('同步逾時，草稿已保留；請再次按「套用變更」。'));
+    },20000);
+    waiters.set(event.nonce,{resolve,reject,timer});
+    post('streamlit:setComponentValue',{value:event,dataType:'json'});
+  });
+}
+async function ensureSynced(){
+  while(draft.dirty||draft.pending) {
+    if(draft.pending)throw new Error('正在套用上一批變更，請稍候再輸出。');
+    await synchronize();
+  }
+}
 function loadImage(src) {
   return new Promise((resolve, reject) => {const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error('圖片載入失敗，請重新上傳。')); image.src = src;});
 }
@@ -50,29 +79,55 @@ window.addEventListener('message', async event => {
   const generation = ++renderGeneration;
   try {
     const rows = args.project.photos;
+    if(receivedSession!==args.session) {
+      try {const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');
+        if(draft.restore(saved,args.session)){
+          selectedPhoto=saved.selection?.selectedPhoto;selectedLabel=saved.selection?.selectedLabel;
+          if(draft.pending&&args.response?.nonce!==draft.pending.nonce){draft.pending=null;draft.dirty=true;}
+        }
+      }catch(error){sessionStorage.removeItem(storageKey);}
+      receivedSession=args.session;
+    }
+    const result=draft.receive(rows,args.session,args.revision,args.response);
+    if(result.stale)return;
+    photos=draft.rows;
     const images = new Map(), tiles = new Map();
     await Promise.all(rows.map(async p => {
       images.set(p.id, imageCache.get(p.id)?.src === p.image ? imageCache.get(p.id) : await loadImage(p.image));
       for (const [id, data] of Object.entries(p.tiles)) {
-        const current = tileCache.get(id);
-        tiles.set(id, current?.src === data.src ? current : await loadImage(data.src));
+        const current = tileCache.get(id), key=StudioLabel.key(data.style);
+        tiles.set(id, current?.src===data.src?current:{image:await loadImage(data.src),key,src:data.src});
       }
     }));
     if (generation !== renderGeneration) return;
     imageCache = images; tileCache = tiles;
-    // 若伺服器回覆較早的操作，不覆蓋使用者尚未同步的較新操作。
-    if (pending && args.ack !== lastSent) return;
     if(lastRevision!==null && args.revision!==lastRevision) {
       clearBrowserResult();
       if(recording && recorder?.state==='recording') {recordingFailure='錄製期間專案內容改變，請重新錄製。';recorder.stop();}
     }
     lastRevision=args.revision;
-    if (!localDirty) photos = rows;
-    pending = false;
+    serverBusy=!!args.busy;
+    photos=draft.rows;
     if (!photos.some(p => p.id === selectedPhoto)) selectedPhoto = photos[0]?.id;
     if (!photo()?.labels.some(l => l.id === selectedLabel)) selectedLabel = photo()?.labels[0]?.id;
-    if(!recording)status(localDirty ? '目前欄位尚未同步，請確認輸入值。' : '已同步到目前工作階段');
-    buildPhotos(); buildLabels(); fillForm(); draw(); support(); if(recording)lockEditor(true); resize();
+    buildPhotos(); buildLabels(); fillForm(); draw(); support();
+    lockEditor(recording||preparing||serverBusy);if(!recording&&!preparing)syncStatus();
+    persistDraft();resize();
+    if(result.matched) {
+      const waiter=waiters.get(args.response.nonce);
+      if(waiter){clearTimeout(waiter.timer);waiters.delete(args.response.nonce);
+        if(result.success)waiter.resolve();else waiter.reject(new Error(result.error));}
+      if(result.error)status(result.error+' 草稿仍保留在此頁。',true);
+    }
+    if(args.export_request&&args.export_request!==activeExportRequest&&!draft.pending) {
+      activeExportRequest=args.export_request;preparing=true;lockEditor(true);
+      synchronize('export',args.export_request).catch(error=>{
+        status(error.message,true);
+        post('streamlit:setComponentValue',{value:{nonce:crypto.randomUUID(),session:draft.session,
+          action:'cancel_export',request:args.export_request},dataType:'json'});
+      })
+        .finally(()=>{preparing=false;lockEditor(serverBusy||recording);});
+    }
   } catch (error) { status(error.message, true); }
 });
 function button(text, fn, className = '') {
@@ -81,20 +136,20 @@ function button(text, fn, className = '') {
 function buildPhotos() {
   $('photos').replaceChildren();
   photos.forEach((p, index) => {
-    const item = button('', () => {if(recording)return; stopPlayback(); editing=true; selectedPhoto=p.id; selectedLabel=p.labels[0]?.id; buildPhotos(); buildLabels(); fillForm(); draw();}, 'photo' + (p.id === selectedPhoto ? ' active' : ''));
+    const item = button('', () => {if(recording||preparing||serverBusy)return; stopPlayback(); editing=true; selectedPhoto=p.id; selectedLabel=p.labels[0]?.id; persistDraft();buildPhotos(); buildLabels(); fillForm(); draw();}, 'photo' + (p.id === selectedPhoto ? ' active' : ''));
     item.draggable = true; item.dataset.photoId = p.id; item.title = p.name;
     const img = document.createElement('img'); img.src = p.image; img.alt = p.name;
     const caption = document.createElement('span'); caption.textContent = `${index+1} · ${p.duration}s · ${p.name}`;
     item.append(img, caption);
-    item.ondragstart = e => {if(recording){e.preventDefault();return;} photoDragId=p.id; e.dataTransfer.setData('text/plain',p.id);};
+    item.ondragstart = e => {if(recording||preparing||serverBusy){e.preventDefault();return;} photoDragId=p.id; e.dataTransfer.setData('text/plain',p.id);};
     item.ondragover = e => {e.preventDefault(); item.classList.add('drag-over');};
     item.ondragleave = () => item.classList.remove('drag-over');
     item.ondrop = e => {
       e.preventDefault(); item.classList.remove('drag-over');
       const source = photos.findIndex(row => row.id === photoDragId), target = photos.findIndex(row => row.id === p.id);
-      if (source < 0 || target < 0 || recording) return;
+      if (source < 0 || target < 0 || recording||preparing||serverBusy) return;
       const [moved] = photos.splice(source,1); photos.splice(target,0,moved);
-      stopPlayback(); editing=true; buildPhotos(); save();
+      stopPlayback(); editing=true; buildPhotos(); markEdited();
     };
     $('photos').append(item);
   });
@@ -105,9 +160,9 @@ function buildLabels() {
   $('labels').replaceChildren();
   const p=photo(); if(!p)return;
   if (!p.labels.length) $('labels').textContent = '尚無標籤，先新增一個裝修項目。';
-  p.labels.forEach(l => $('labels').append(button(l.text, () => {selectedLabel=l.id; buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
+  p.labels.forEach(l => $('labels').append(button(l.text, () => {selectedLabel=l.id; persistDraft();buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
   $('labelForm').hidden = !label();
-  $('addLabel').disabled = p.labels.length >= 12 || recording;
+  $('addLabel').disabled = p.labels.length >= 12 || recording||preparing||serverBusy;
 }
 const labelFields = ['text','font_size','color','background','opacity','radius','line','animation','start','end','enter'];
 function fillForm() {
@@ -133,8 +188,14 @@ function locate(t) {
   for(let i=0;i<photos.length;i++) {if(t<offset+photos[i].duration || i===photos.length-1)return {photo:photos[i],local:t-offset}; offset+=photos[i].duration;}
   return {photo:null,local:0};
 }
+function tileFor(l) {
+  const key=StudioLabel.key(l), current=tileCache.get(l.id);
+  if(current?.key===key)return current.image;
+  const image=StudioLabel.raster(l,()=>document.createElement('canvas'));
+  tileCache.set(l.id,{image,key});return image;
+}
 function bounds(l) {
-  const tile=tileCache.get(l.id), width=tile?.naturalWidth || 280, height=tile?.naturalHeight || 110;
+  const tile=tileFor(l), width=tile.naturalWidth || tile.width, height=tile.naturalHeight || tile.height;
   return {width,height,x:Math.min(l.x*W,W-width),y:Math.min(l.y*H,H-height)};
 }
 function draw() {
@@ -148,7 +209,7 @@ function draw() {
   for(const l of p.labels) {
     const position=editing?{x:0,y:0,scale:1,alpha:1}:StudioAnimation.pose(l,state.local);
     if(!position)continue;
-    const b=bounds(l), x=b.x+position.x*W,y=b.y+position.y*H,tile=tileCache.get(l.id);
+    const b=bounds(l), x=b.x+position.x*W,y=b.y+position.y*H,tile=tileFor(l);
     ctx.save();ctx.globalAlpha=position.alpha;
     if(l.line) {
       ctx.strokeStyle='rgba(255,255,255,.824)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x+b.width/2,y+b.height/2);ctx.lineTo(l.point_x*W,l.point_y*H);ctx.stroke();
@@ -167,7 +228,7 @@ function draw() {
 }
 function coords(e) {const r=$('canvas').getBoundingClientRect();return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};}
 $('canvas').addEventListener('pointerdown',e=>{
-  if(!editing||recording)return;
+  if(!editing||recording||preparing||serverBusy)return;
   const xy=coords(e),p=photo();if(!p)return;
   // 優先選取目前標籤的定位點，避免與其他文字碰撞時難以拖曳。
   const ordered=[...p.labels].reverse().sort((a,b)=>Number(b.id===selectedLabel)-Number(a.id===selectedLabel));
@@ -179,18 +240,18 @@ $('canvas').addEventListener('pointerdown',e=>{
   if(dragging) {e.preventDefault();selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
 });
 $('canvas').addEventListener('pointermove',e=>{
-  if(!dragging)return;const xy=coords(e),l=label();if(!l)return;
+  if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e),l=label();if(!l)return;
   if(dragging.type==='point') {l.point_x=clamp(xy.x/W,0,1);l.point_y=clamp(xy.y/H,0,1);}
   else {const b=bounds(l);l.x=clamp(xy.x-dragging.dx,0,W-b.width)/W;l.y=clamp(xy.y-dragging.dy,0,H-b.height)/H;}
-  info();draw();
+  markEdited(false);queueDraw();
 });
-function finishDrag(){if(dragging){dragging=null;save();}}
+function finishDrag(){if(dragging){dragging=null;persistDraft();}}
 $('canvas').addEventListener('pointerup',finishDrag);$('canvas').addEventListener('pointercancel',finishDrag);
 $('canvas').addEventListener('keydown',e=>{
-  const l=label();if(!editing||!l||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;
+  const l=label();if(!editing||recording||preparing||serverBusy||!l||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;
   e.preventDefault();const step=e.shiftKey?30:6,b=bounds(l);
   l.x=clamp(b.x+(e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0),0,W-b.width)/W;
-  l.y=clamp(b.y+(e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0),0,H-b.height)/H;draw();info();save();
+  l.y=clamp(b.y+(e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0),0,H-b.height)/H;draw();info();markEdited();
 });
 function stopPlayback(){playing=false;cancelAnimationFrame(raf);$('play').textContent='▶ 預覽影片';}
 function tick(now) {
@@ -206,44 +267,44 @@ $('duration').onchange=()=>{
   const p=photo(),value=Number($('duration').value); if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
   p.duration=value;
   for(const l of p.labels){l.start=Math.min(l.start,value-.1);l.end=Math.min(l.end,value);l.enter=Math.min(l.enter,l.end-l.start);}
-  buildPhotos();fillForm();save();
+  buildPhotos();fillForm();markEdited();
 };
 $('duration').oninput=()=>{
-  localDirty=true;clearBrowserResult();
+  clearBrowserResult();
   const p=photo(),value=Number($('duration').value);
   if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
   p.duration=value;
   for(const l of p.labels){l.start=Math.min(l.start,value-.1);l.end=Math.min(l.end,value);l.enter=Math.min(l.enter,l.end-l.start);}
-  buildPhotos();queueSave();
+  buildPhotos();markEdited();
 };
-$('fit').onchange=()=>{photo().fit=$('fit').value;editing=true;stopPlayback();fillForm();draw();save();};
+$('fit').onchange=()=>{photo().fit=$('fit').value;editing=true;stopPlayback();fillForm();draw();markEdited();};
 for(const key of ['zoom','crop_x','crop_y']) {
-  $(key).oninput=()=>{localDirty=true;photo()[key]=Number($(key).value);editing=true;stopPlayback();clearBrowserResult();draw();queueSave();};
-  $(key).onchange=()=>save();
+  $(key).oninput=()=>{photo()[key]=Number($(key).value);editing=true;stopPlayback();draw();markEdited();};
+  $(key).onchange=()=>persistDraft();
 }
 for(const key of labelFields) {
   $(key).oninput=()=> {
     const l=label();if(!l)return;
-    localDirty=true;clearBrowserResult();
     l[key]=key==='line'?$(key).checked:['text','color','background','animation'].includes(key)?$(key).value:Number($(key).value);
-    info();status('正在編輯，稍後自動同步…');queueSave();
+    buildLabels();editing=true;stopPlayback();info();draw();markEdited();
   };
   $(key).onchange=()=> {
     const l=label();if(!l)return;
     l[key]=key==='line'?$(key).checked:['text','color','background','animation'].includes(key)?$(key).value:Number($(key).value);
-    info();save();draw();
+    buildLabels();info();draw();markEdited();
   };
 }
 $('addLabel').onclick=()=>{
   const p=photo();if(!p||p.labels.length>=12)return;
   const l={id:crypto.randomUUID(),text:'裝修項目',x:.12,y:.28,point_x:.58,point_y:.52,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'left',start:0,enter:.6,end:p.duration};
-  p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();save();
+  p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();markEdited();
 };
-$('deleteLabel').onclick=()=>{const p=photo();p.labels=p.labels.filter(l=>l.id!==selectedLabel);selectedLabel=p.labels[0]?.id;buildLabels();fillForm();draw();save();};
-$('deletePhoto').onclick=()=>{save('delete_photo',selectedPhoto);};
+$('deleteLabel').onclick=()=>{const p=photo();p.labels=p.labels.filter(l=>l.id!==selectedLabel);tileCache.delete(selectedLabel);selectedLabel=p.labels[0]?.id;buildLabels();fillForm();draw();markEdited();};
+$('deletePhoto').onclick=()=>{draft.deleted.push(selectedPhoto);photos=photos.filter(p=>p.id!==selectedPhoto);selectedPhoto=photos[0]?.id;selectedLabel=photo()?.labels[0]?.id;buildPhotos();buildLabels();fillForm();draw();markEdited();};
+$('applyChanges').onclick=()=>synchronize().catch(error=>status(error.message,true));
 function movePhoto(delta) {
   const index=photos.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(next<0||next>=photos.length)return;
-  [photos[index],photos[next]]=[photos[next],photos[index]];buildPhotos();save();
+  [photos[index],photos[next]]=[photos[next],photos[index]];buildPhotos();markEdited();
 }
 $('moveLeft').onclick=()=>movePhoto(-1);$('moveRight').onclick=()=>movePhoto(1);
 function supportedMime() {
@@ -251,7 +312,7 @@ function supportedMime() {
   return ['video/mp4;codecs=avc1.42E028','video/mp4;codecs=avc1'].find(m=>MediaRecorder.isTypeSupported(m))||null;
 }
 function support() {
-  const mime=supportedMime();$('browserExport').disabled=!mime||pending||localDirty;
+  const mime=supportedMime();$('browserExport').disabled=!mime||!!draft.pending||serverBusy||preparing;
   $('support').textContent=mime?'本機錄製，請保持頁面前景':'此瀏覽器未提供 H.264 MP4，請使用下方 FFmpeg 輸出';
 }
 function clearBrowserResult() {
@@ -259,12 +320,16 @@ function clearBrowserResult() {
   $('browserResult').hidden=true;$('browserVideo').removeAttribute('src');
 }
 function lockEditor(locked) {
+  if(locked&&dragging){dragging=null;persistDraft();}
   for(const element of document.querySelectorAll('button,input,select,textarea'))element.disabled=locked;
-  if(!locked){support();buildLabels();fillForm();}
+  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!!draft.pending;}
 }
 $('browserExport').onclick=async()=>{
-  if(!validProject()||pending||localDirty)return;
+  if(!validProject()||draft.pending||serverBusy||preparing)return;
   const mime=supportedMime();if(!mime){status('此瀏覽器不支援 H.264 MP4，請使用 FFmpeg。',true);return;}
+  preparing=true;lockEditor(true);
+  try{await ensureSynced();}catch(error){preparing=false;lockEditor(false);status(error.message,true);return;}
+  preparing=false;
   clearBrowserResult();stopPlayback();recording=true;editing=false;time=0;draw();lockEditor(true);
   $('recordProgress').hidden=false;$('recordProgress').value=0;
   let stream, visibility=null, timer=null;
