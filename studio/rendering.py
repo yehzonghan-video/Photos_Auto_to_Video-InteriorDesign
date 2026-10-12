@@ -33,13 +33,22 @@ def font_path():
 def photo_image(photo):
     with Image.open(BytesIO(photo.original)) as source:
         source = ImageOps.exif_transpose(source).convert("RGBA")
-        bg = Image.new("RGBA", source.size, (21, 26, 22, 255))
+        bg = Image.new("RGBA", source.size, (0, 0, 0, 255))
         bg.alpha_composite(source)
         return bg.convert("RGB")
 
 
 def crop_photo(photo, width=W, height=H):
     source = photo_image(photo)
+    if getattr(photo, "fit", "contain") == "contain":
+        # 完整照片等比例置中；留黑邊時不套用會切掉照片的縮放與裁切。
+        factor = min(width / source.width, height / source.height)
+        size = (max(1, int(source.width * factor + .5)),
+                max(1, int(source.height * factor + .5)))
+        image = source.resize(size, Image.Resampling.LANCZOS)
+        frame = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        frame.paste(image, ((width - size[0]) // 2, (height - size[1]) // 2))
+        return frame
     # cover 裁切：維持長寬比，先在原始像素選取視窗，再縮放輸出。
     factor = max(width / source.width, height / source.height) * photo.zoom
     cw, ch = width / factor, height / factor

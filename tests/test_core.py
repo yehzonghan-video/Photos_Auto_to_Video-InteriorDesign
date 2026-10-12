@@ -29,11 +29,32 @@ class CoreTests(unittest.TestCase):
 
     def test_crop_selects_correct_original_region(self):
         item = photo()
+        item.fit = "cover"
         item.crop_x = 0
         self.assertEqual(crop_photo(item, 90, 160).getpixel((45, 80))[:3], (255, 0, 0))
         item.crop_x = 1
         self.assertEqual(crop_photo(item, 90, 160).getpixel((45, 80))[:3], (0, 0, 255))
         self.assertEqual(item.original, photo().original)
+
+    def test_full_landscape_photo_keeps_both_edges_and_black_bars(self):
+        item = photo()
+        item.zoom, item.crop_x, item.crop_y = 3, 1, 0
+        frame = crop_photo(item, 90, 160)
+        self.assertEqual(frame.getpixel((45, 0)), (0, 0, 0, 255))
+        self.assertEqual(frame.getpixel((45, 159)), (0, 0, 0, 255))
+        self.assertEqual(frame.getpixel((0, 80))[:3], (255, 0, 0))
+        self.assertEqual(frame.getpixel((89, 80))[:3], (0, 0, 255))
+
+    def test_full_tall_photo_keeps_top_bottom_and_side_bars(self):
+        data = BytesIO()
+        image = Image.new("RGB", (50, 200), "red")
+        image.paste(Image.new("RGB", (50, 50), "blue"), (0, 150))
+        image.save(data, "PNG")
+        frame = crop_photo(load_photo("tall.png", data.getvalue()), 90, 160)
+        self.assertEqual(frame.getpixel((0, 80)), (0, 0, 0, 255))
+        self.assertEqual(frame.getpixel((89, 80)), (0, 0, 0, 255))
+        self.assertEqual(frame.getpixel((45, 0))[:3], (255, 0, 0))
+        self.assertEqual(frame.getpixel((45, 159))[:3], (0, 0, 255))
 
     def test_invalid_change_is_atomic(self):
         item = photo()

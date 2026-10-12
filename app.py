@@ -130,6 +130,7 @@ with st.expander("替換單張照片", expanded=False):
             target = next(p for p in photos if p.id == target_id)
             fresh.id = target.id
             fresh.duration, fresh.zoom, fresh.crop_x, fresh.crop_y = target.duration, target.zoom, target.crop_x, target.crop_y
+            fresh.fit = getattr(target, "fit", "contain")
             fresh.labels = target.labels
             proposed = [fresh if p.id == target_id else p for p in photos]
             check_capacity(proposed)

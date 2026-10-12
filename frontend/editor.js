@@ -114,6 +114,8 @@ function fillForm() {
   const p=photo(); if(!p)return;
   if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${photos.findIndex(row=>row.id===p.id)+1} / ${photos.length}`;
   for (const key of ['zoom','crop_x','crop_y']) $(key).value=p[key];
+  $('fit').value=p.fit || 'contain';
+  for (const key of ['zoom','crop_x','crop_y']) $(key).disabled=recording || $('fit').value==='contain';
   const l=label(); $('labelForm').hidden=!l;
   if(l) {
     for(const key of labelFields) {if(document.activeElement===$(key))continue;if(key==='line')$(key).checked=l[key];else $(key).value=l[key];}
@@ -137,12 +139,11 @@ function bounds(l) {
 }
 function draw() {
   const state=editing?{photo:photo(),local:0}:locate(time), p=state.photo;
-  ctx.fillStyle='#151a16';ctx.fillRect(0,0,W,H); if(!p)return;
+  ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p)return;
   const image=imageCache.get(p.id);
   if(image) {
-    const factor=Math.max(W/image.naturalWidth,H/image.naturalHeight)*p.zoom;
-    const cw=W/factor,ch=H/factor;
-    ctx.drawImage(image,(image.naturalWidth-cw)*p.crop_x,(image.naturalHeight-ch)*p.crop_y,cw,ch,0,0,W,H);
+    const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
+    ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
   }
   for(const l of p.labels) {
     const position=editing?{x:0,y:0,scale:1,alpha:1}:StudioAnimation.pose(l,state.local);
@@ -215,6 +216,7 @@ $('duration').oninput=()=>{
   for(const l of p.labels){l.start=Math.min(l.start,value-.1);l.end=Math.min(l.end,value);l.enter=Math.min(l.enter,l.end-l.start);}
   buildPhotos();queueSave();
 };
+$('fit').onchange=()=>{photo().fit=$('fit').value;editing=true;stopPlayback();fillForm();draw();save();};
 for(const key of ['zoom','crop_x','crop_y']) {
   $(key).oninput=()=>{localDirty=true;photo()[key]=Number($(key).value);editing=true;stopPlayback();clearBrowserResult();draw();queueSave();};
   $(key).onchange=()=>save();
@@ -258,7 +260,7 @@ function clearBrowserResult() {
 }
 function lockEditor(locked) {
   for(const element of document.querySelectorAll('button,input,select,textarea'))element.disabled=locked;
-  if(!locked){support();buildLabels();}
+  if(!locked){support();buildLabels();fillForm();}
 }
 $('browserExport').onclick=async()=>{
   if(!validProject()||pending||localDirty)return;

@@ -66,11 +66,12 @@ class Photo:
     zoom: float = 1.
     crop_x: float = .5
     crop_y: float = .5
+    fit: str = "contain"
     labels: list = field(default_factory=list)
 
     def metadata(self):
         return {key: getattr(self, key) for key in
-                ("id", "name", "duration", "zoom", "crop_x", "crop_y", "labels")}
+                ("id", "name", "duration", "zoom", "crop_x", "crop_y", "fit", "labels")}
 
 
 def load_photo(name, data):
@@ -102,12 +103,15 @@ def update_project(photos, rows):
     changes = []
     for row in rows:
         duration = number(row["duration"], 1, 20)
+        fit = row.get("fit", "contain")
+        if fit not in ("contain", "cover"):
+            raise ValueError("不支援此照片顯示方式。")
         if not isinstance(row["labels"], list) or len(row["labels"]) > MAX_LABELS:
             raise ValueError("單張最多 12 個標籤。")
         labels = [validate_label(label, duration) for label in row["labels"]]
         if len({label["id"] for label in labels}) != len(labels):
             raise ValueError("標籤識別碼不可重複。")
-        changes.append((known[row["id"]], dict(duration=duration, labels=labels,
+        changes.append((known[row["id"]], dict(duration=duration, labels=labels, fit=fit,
                         zoom=number(row["zoom"], 1, 3),
                         crop_x=number(row["crop_x"], 0, 1), crop_y=number(row["crop_y"], 0, 1))))
     if sum(c[1]["duration"] for c in changes) > MAX_TOTAL_SECONDS:
