@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>案例影片編輯器</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<section class="studio">
+  <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span></div>
+  <div id="photos" class="photos" aria-label="照片播放順序"></div>
+  <div class="editor-grid">
+    <section class="preview-panel">
+      <div class="preview-toolbar"><span id="mode">構圖與標籤編輯</span><span class="badge">9:16 · 1080p</span></div>
+      <div class="canvas-wrap"><canvas id="canvas" width="1080" height="1920" tabindex="0" aria-label="影片畫布；滑鼠或觸控拖曳標籤及圓形定位點"></canvas></div>
+      <div class="playback"><button id="play" class="primary">▶ 預覽影片</button><button id="edit">編輯目前照片</button><output id="clock">0.0 s</output></div>
+      <input id="seek" type="range" min="0" max="20" value="0" step=".033333" aria-label="影片預覽時間軸">
+      <p class="hint">拖曳文字移動標籤，拖曳圓點定位物件。預覽與輸出會隱藏選取框。</p>
+      <div class="browser-export"><button id="browserExport">瀏覽器 MP4</button><span id="support" class="hint"></span></div>
+      <progress id="recordProgress" value="0" max="1" hidden></progress>
+      <div id="browserResult" hidden><a id="browserDownload" download="室內設計案例.mp4">下載瀏覽器 MP4</a><video id="browserVideo" controls playsinline></video></div>
+    </section>
+    <aside class="controls">
+      <div class="section-title">照片設定 <span id="photoNumber"></span></div>
+      <label class="field">顯示秒數<input id="duration" type="number" min="1" max="20" step=".1" value="4"></label>
+      <div class="row"><button id="moveLeft">← 前移</button><button id="moveRight">後移 →</button><button id="deletePhoto" class="danger">刪除照片</button></div>
+      <details><summary>照片縮放與裁切</summary>
+        <label class="field">縮放<input id="zoom" type="range" min="1" max="3" step=".01"></label>
+        <label class="field">水平裁切<input id="crop_x" type="range" min="0" max="1" step=".01"></label>
+        <label class="field">垂直裁切<input id="crop_y" type="range" min="0" max="1" step=".01"></label>
+      </details>
+      <div class="section-title">裝修標籤 <button id="addLabel" class="primary">＋ 新增標籤</button></div>
+      <div id="labels" class="labels"></div>
+      <div id="labelForm" hidden>
+        <label class="field">標籤文字<textarea id="text" rows="2" maxlength="80"></textarea></label>
+        <label class="check"><input id="line" type="checkbox">顯示連接線與定位點</label>
+        <details><summary>文字與背景樣式</summary>
+          <label class="field">文字大小<input id="font_size" type="range" min="24" max="96" step="1"></label>
+          <div class="row"><label class="field">字體顏色<input id="color" type="color"></label><label class="field">背景顏色<input id="background" type="color"></label></div>
+          <label class="field">背景透明度<input id="opacity" type="range" min="0" max="1" step=".01"></label>
+          <label class="field">圓角<input id="radius" type="range" min="0" max="60" step="1"></label>
+        </details>
+        <details open><summary>標籤動畫與時間</summary>
+          <label class="field">進場動畫<select id="animation"><option value="left">從左側滑入</option><option value="right">從右側滑入</option><option value="up">從上方滑入</option><option value="down">從下方滑入</option><option value="fade">淡入</option><option value="scale">縮放出現</option><option value="none">無動畫</option></select></label>
+          <div class="row"><label class="field">出現秒數<input id="start" type="number" min="0" step=".1"></label><label class="field">消失秒數<input id="end" type="number" min=".1" step=".1"></label></div>
+          <label class="field">進場時長（秒）<input id="enter" type="number" min="0" max="3" step=".1"></label>
+          <div id="hold" class="hint"></div>
+        </details>
+        <div class="row"><button id="deleteLabel" class="danger">刪除此標籤</button><span id="position" class="hint"></span></div>
+      </div>
+      <p id="status" role="status" class="status">編輯自動同步到目前工作階段</p>
+    </aside>
+  </div>
+</section>
+<script src="animation.js"></script><script src="editor.js"></script>
+</body></html>

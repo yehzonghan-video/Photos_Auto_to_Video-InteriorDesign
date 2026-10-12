@@ -1,0 +1,41 @@
+# 第一階段驗證記錄
+
+驗證日期：2026-10-12。環境：Windows、Python 3.12.14、Streamlit 1.65.0、Pillow 12.3.0、imageio-ffmpeg 0.6.0。瀏覽器：Codex 內建 Chromium 瀏覽器。
+
+## 實際影片技術驗證
+
+- `scripts/verify_export.py --width 1080`：5 張自行繪製的室內空間示意圖，每張 4 秒，含中文字從左滑入、連接線與定位點。
+- 產生 `artifacts/verification.mp4`：1080×1920、H.264、30 FPS、20.00 秒、600 影格。檔案 153432 bytes；素材簡單，因此壓縮檔較小。
+- 生成、完整 FFmpeg 解碼與截圖檢查共約 15.94 秒。
+- 瀏覽器實際播放：`readyState=4`、`videoWidth=1080`、`videoHeight=1920`、`duration=20`，讀取時 `paused=false`、播放時間約 13.11 秒。
+- 正式 Streamlit 操作介面，修改文字及照片順序後輸出 Full HD：顯示渲染耗時 12.3 秒；實際下載到 `Downloads/室內設計案例.mp4`。對下載檔案完整解碼成功，確認 H.264 High、yuv420p、1080×1920、30 FPS、20.00 秒、600 影格。
+
+## 瀏覽器輸出驗證
+
+- 執行環境的 `MediaRecorder.isTypeSupported()` 接受 H.264 MP4 MIME。
+- 實際 Canvas 錄製完整 20 秒，不使用伺服器影片 API；結果影片 `readyState=4`、1080×1920、約 20.014533 秒。
+- 編輯器內已載入生成的 Blob MP4 與下載連結。自動測試工具不支援 iframe Blob 的 `downloadMedia()`，下載事件擷取也未能確認成功；**瀏覽器 Blob 下載本身未完成自動化驗證**。可靠下載流程已透過 Streamlit/FFmpeg 的實際下載檔案確認。
+- 原生瀏覽器錄製不保證每部電腦或瀏覽器都支持 H.264，也不保證固定 30 FPS；不支持時按鈕會停用並說明 FFmpeg 替代方式。
+
+## 編輯器操作
+
+- 真正滑鼠拖曳標籤：位置由約 `(0.12, 0.25)` 移至 `(0.21, 0.37)`，顯示同步完成。
+- 單獨拖曳定位點：約 `(0.58, 0.52)` 移至 `(0.72, 0.70)`，文字位置維持不變。
+- 修改「木紋地板」為「自然採光」，回覆後文字及共用 PNG 素材更新。
+- 手動新增第二個標籤，修改為「間接照明」並選擇縮放出現動畫，成功同步；刪除此標籤後保留原來的標籤。
+- 點選第二張顯示自己的「展示收納」標籤；照片與標籤保持獨立。
+- 真正拖曳第二張照片至第五個播放位置，時間軸順序成為 1、3、4、5、2，並同步到 Python 工作階段。
+- 上傳測試使用自己生成的 JPG、PNG、WEBP，透過真正的檔案選擇器一次上傳三張；專案增加至 8 張、32 秒，舊的伺服器下載結果失效。
+- 刪除一張測試照片後時間軸由 5 張／20 秒更新為 4 張／16 秒；清空後回到上傳起始畫面。
+- 觸控共用 Pointer Events 與 pointer capture；未使用實體觸控裝置驗證。
+
+## 自動測試
+
+- `python -m unittest discover -s tests -v`：7 項通過。包括壞檔、裁切原始區域、保留原始資料、資料驗證原子性、排序綁定、中文字形、動畫邊界、Streamlit 載入／360p 真實輸出／清空。
+- `node --test tests/animation.test.cjs`：前端與 Python 七種動畫的邊界與中間時間姿態一致。
+- `node --check frontend/editor.js` 與 Python compileall 通過。
+- `pip check`：沒有依賴衝突。
+
+## 驗證範圍
+
+沒有部署至 Streamlit Community Cloud；Cloud 的安裝方式依官方文件配置，實際編碼能力由應用程式啟動檢查。尚未驗證雲端效能、Safari／Firefox 相容性、實體觸控、多使用者負載，以及 3 分鐘操作目標的真實使用者測試。
