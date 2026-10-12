@@ -8,6 +8,7 @@ const {DraftState}=require('../frontend/draft-state.js');
 const StudioLabel=require('../frontend/label-raster.js');
 const StudioPhoto=require('../frontend/photo-layout.js');
 const StudioAnimation=require('../frontend/animation.js');
+const StudioAI=require('../frontend/ai-import.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
@@ -26,12 +27,12 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState},StudioLabel,StudioPhoto,StudioAnimation,crypto:webcrypto,console,
+    StudioDraft:{DraftState},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
   vm.runInContext(fs.readFileSync('frontend/editor.js','utf8'),context);
-  const rows=()=>[{id:'p1',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
+  const rows=()=>[{id:'p1',content_hash:'hash',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
     {id:'p2',name:'second',image:'image2',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'}];
   async function receive(extra={}){await listeners.message({source:window.parent,data:{type:'streamlit:render',args:{project:{photos:rows()},session:'session',revision:1,busy:false,...extra}}});}
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
@@ -63,6 +64,22 @@ test('真正事件處理器：連續新增10個、500次移動、修改、刪除
   const rows=rebuilt.rows();rows.forEach((row,i)=>row.labels=sent.photos[i].labels);
   await rebuilt.receive({project:{photos:rows},revision:2,response:{nonce:sent.nonce,ok:true}});await promise;
   assert.equal(rebuilt.elements.get('labels').children.length,9);assert.equal(rebuilt.changes().length,1);
+});
+test('AI 整批匯入保留未同步人工標籤，rerun 與元件重建不重複，輸出帶最新AI標籤',async()=>{
+  const env=environment();await env.receive();env.elements.get('addLabel').onclick();
+  env.elements.get('text').value='人工草稿';env.elements.get('text').oninput();
+  const batch={id:'batch',photo_id:'p1',content_hash:'hash',items:[{label:'木紋地板',description:'可見木紋',category:'地板',box_2d:[.5,0,1,1],anchor_x:.5,anchor_y:.75,suggested_label_x:.1,suggested_label_y:.6,confidence_level:'中',needs_review:true,ai_item_id:'item'}]};
+  await env.receive({ai_imports:[batch]});
+  assert.equal(env.elements.get('labels').children.length,2);assert.equal(env.changes().length,0);
+  assert.equal(vm.runInContext('photos[0].labels[0].text',env.context),'人工草稿');
+  await env.receive({ai_imports:[batch]});assert.equal(env.elements.get('labels').children.length,2);
+  env.elements.get('photos').children[1].onclick();env.elements.get('photos').children[0].onclick();
+  assert.equal(env.elements.get('labels').children.length,2);
+  const rebuilt=environment(env.storage);await rebuilt.receive({ai_imports:[batch]});
+  assert.equal(rebuilt.elements.get('labels').children.length,2);assert.equal(rebuilt.changes().length,0);
+  await rebuilt.receive({ai_imports:[batch],export_request:'export-ai'});
+  const event=rebuilt.changes()[0].value;
+  assert.equal(event.photos[0].labels[1].text,'木紋地板');assert.deepEqual(event.imported_batches,['batch']);
 });
 test('輸出請求先傳送最新完整草稿，完成後解除鎖定',async()=>{
   const env=environment();await env.receive();env.elements.get('addLabel').onclick();

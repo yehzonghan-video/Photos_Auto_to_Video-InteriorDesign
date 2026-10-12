@@ -28,6 +28,7 @@ def payload(photos, cache=None):
             assets["image"] = f"data:{mime};base64," + base64.b64encode(photo.original).decode("ascii")
             assets["digest"] = digest
         row["image"] = assets["image"]
+        row["content_hash"] = digest
         row["tiles"] = {}
         for label in photo.labels:
             style = {key: label[key] for key in ("text", "font_size", "color", "background", "opacity", "radius")}

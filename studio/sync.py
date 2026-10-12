@@ -47,6 +47,10 @@ def consume_editor_event(state, event):
         photos = apply_editor_event(state["photos"], event, state["editor_session"],
                                     state["revision"], request["id"] if request else None)
         state["photos"] = photos
+        acknowledgements = event.get("imported_batches", [])
+        if isinstance(acknowledgements, list):
+            state["ai_imports"] = [batch for batch in state.get("ai_imports", [])
+                                   if batch["id"] not in acknowledgements]
         state["revision"] += 1
         state["project_payload"] = None
         if not photos:

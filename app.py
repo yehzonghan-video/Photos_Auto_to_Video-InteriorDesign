@@ -1,4 +1,4 @@
-"""第一階段：手動編輯可操作的案例影片；無登入、無持久化照片。"""
+"""室內案例影片：前端草稿編輯與選用的 Gemini 辨識；無持久化照片。"""
 from pathlib import Path
 import time
 import uuid
@@ -10,6 +10,7 @@ from studio.export import capabilities, export_video
 from studio.models import MAX_PHOTOS, MAX_SESSION_BYTES, load_photo
 from studio.sync import consume_editor_event
 from studio.rendering import font_path, template_config
+from studio.ai_ui import ai_panel
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 st.markdown("""<style>
@@ -25,7 +26,8 @@ h1{font-size:2rem!important;letter-spacing:.025em}h2{font-size:1.3rem!important}
 defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 revision=0, output_seconds=None, notice=None, notice_error=False,
                 editor_session=uuid.uuid4().hex, editor_seen=[], editor_response=None,
-                editor_assets={}, pending_export=None, editor_busy=False)
+                editor_assets={}, pending_export=None, editor_busy=False,
+                ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0, ai_removed=[])
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -60,12 +62,12 @@ def check_capacity(photos):
 
 with st.sidebar:
     st.markdown("### 案例影片工作室")
-    st.caption("第一階段 · 手動編輯 MVP")
+    st.caption("第二階段 · AI 裝修項目辨識")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
     config = template_config()
     st.selectbox("影片模板", [config["name"]])
-    st.caption("AI 分析、其他模板、音樂與 LOGO 將在後續階段加入。")
+    st.caption("AI 建議需確認後採用；其他模板、音樂與 LOGO 將在後續階段加入。")
     with st.expander("執行環境檢查", expanded=False):
         try:
             info = capabilities()
@@ -87,6 +89,10 @@ with st.sidebar:
         st.session_state.editor_response = None
         st.session_state.pending_export = None
         st.session_state.editor_busy = False
+        for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0, ai_removed=[]).items():
+            st.session_state[key] = value
+        st.session_state.pop("ai_chosen", None)
+        st.session_state.pop("ai_consent", None)
         st.session_state.pop("render_job", None)
         st.session_state.uploader_epoch += 1
         invalidate()
@@ -162,6 +168,7 @@ with st.expander("替換單張照片", expanded=False):
             st.error(str(exc))
 
 st.subheader("02　編輯畫面與裝修標籤")
+ai_panel(photos, st.session_state)
 st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成後按「套用變更」；輸出前會自動套用最新設定。")
 try:
     if st.session_state.project_payload is None:
@@ -170,6 +177,7 @@ try:
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,
            export_request=request["id"] if request else None, busy=st.session_state.editor_busy,
+           ai_imports=st.session_state.ai_imports,
            key="studio_editor", default=None)
 except (RuntimeError, OSError) as exc:
     st.error(str(exc))

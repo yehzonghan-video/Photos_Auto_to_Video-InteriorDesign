@@ -47,12 +47,22 @@ def validate_label(raw, duration):
     enter = number(raw.get("enter", .6), 0, 3)
     if end <= start or enter > end - start:
         raise ValueError("消失時間必須晚於出現時間，進場時長不能超過標籤顯示時間。")
-    return dict(id=str(raw["id"])[:64], text=text,
+    result = dict(id=str(raw["id"])[:64], text=text,
                 **{key: number(raw[key], 0, 1) for key in ("x", "y", "point_x", "point_y")},
                 font_size=number(raw["font_size"], 24, 96), color=color(raw["color"]),
                 background=color(raw["background"]), opacity=number(raw["opacity"], 0, 1),
                 radius=number(raw["radius"], 0, 60), line=bool(raw["line"]),
                 animation=animation, start=start, end=end, enter=enter)
+    if raw.get("source") == "gemini":
+        for key, limit in (("description", 200), ("category", 30), ("ai_item_id", 180), ("confidence_level", 1)):
+            value = raw.get(key, "")
+            if not isinstance(value, str) or len(value) > limit:
+                raise ValueError("AI 標籤附加資料不正確。")
+            result[key] = value
+        if result["confidence_level"] not in ("高", "中", "低"):
+            raise ValueError("AI 信心程度不正確。")
+        result.update(source="gemini", needs_review=bool(raw.get("needs_review", True)))
+    return result
 
 
 @dataclass

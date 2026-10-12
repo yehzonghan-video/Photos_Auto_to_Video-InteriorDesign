@@ -1,5 +1,7 @@
 # 第一階段驗證記錄
 
+第二階段 Gemini 的真實 API 結果、Mock 測試範圍與人工待測清單請見 [AI.md](AI.md)。以下第一階段紀錄為歷史驗證，並非再次執行所有瀏覽器操作。
+
 最新的標籤編輯效能／批次同步更新：15 項 Python、11 項 Node 測試，以及實際瀏覽器新增、跨照片／rerun 草稿保存、拖曳及 Full HD 輸出記錄，詳見 [EDITOR_SYNC.md](EDITOR_SYNC.md)。以下保留原第一階段的歷史驗證。
 
 驗證日期：2026-10-12。環境：Windows、Python 3.12.14、Streamlit 1.65.0、Pillow 12.3.0、imageio-ffmpeg 0.6.0。瀏覽器：Codex 內建 Chromium 瀏覽器。

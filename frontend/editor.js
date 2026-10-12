@@ -108,6 +108,11 @@ window.addEventListener('message', async event => {
     lastRevision=args.revision;
     serverBusy=!!args.busy;
     photos=draft.rows;
+    if(!recording&&!preparing&&!serverBusy&&!draft.pending) {
+      const imported=StudioAI.importBatches(draft,args.ai_imports,imageCache,StudioPhoto.layout,()=>crypto.randomUUID());
+      if(imported.added){markEdited();editing=true;stopPlayback();}
+      if(imported.messages.length)$('aiStatus').textContent=imported.messages.join(' ');
+    }
     if (!photos.some(p => p.id === selectedPhoto)) selectedPhoto = photos[0]?.id;
     if (!photo()?.labels.some(l => l.id === selectedLabel)) selectedLabel = photo()?.labels[0]?.id;
     buildPhotos(); buildLabels(); fillForm(); draw(); support();

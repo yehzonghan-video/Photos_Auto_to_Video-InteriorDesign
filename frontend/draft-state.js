@@ -7,11 +7,12 @@
     const old = new Map(local.map(row => [row.id, row]));
     // 本地排序／刪除保留，新上傳的照片加在最後；後端刪除的照片不復活。
     return [...local.filter(row => live.has(row.id)).map(row => ({...live.get(row.id), ...row,
-      name:live.get(row.id).name,image:live.get(row.id).image, tiles:live.get(row.id).tiles})),
+      name:live.get(row.id).name,image:live.get(row.id).image, tiles:live.get(row.id).tiles,
+      content_hash:live.get(row.id).content_hash})),
       ...remote.filter(row => !old.has(row.id))];
   }
   class DraftState {
-    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];}
+    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];}
     restore(saved, session) {
       if (!saved || saved.session!==session || !Array.isArray(saved.rows)) return false;
       Object.assign(this, saved); this.rows=clone(saved.rows);return true;
@@ -20,11 +21,11 @@
     snapshot(nonce, action='apply', request=null) {
       if(this.pending)throw new Error('正在套用上一批變更，請稍候。');
       this.pending={nonce,seq:this.seq};
-      return {session:this.session,base_revision:this.revision,nonce,action,request,seq:this.seq,photos:metadata(this.rows)};
+      return {session:this.session,base_revision:this.revision,nonce,action,request,seq:this.seq,photos:metadata(this.rows),imported_batches:[...this.imported]};
     }
     receive(rows, session, revision, response) {
       if(this.session!==session) {
-        this.session=session;this.revision=revision;this.seq=0;this.dirty=false;this.pending=null;this.deleted=[];this.rows=rows;
+        this.session=session;this.revision=revision;this.seq=0;this.dirty=false;this.pending=null;this.deleted=[];this.imported=[];this.rows=rows;
         return {fresh:true};
       }
       if(revision<this.revision)return {stale:true};
@@ -42,7 +43,7 @@
     }
     persisted(selection={}) {
       return {session:this.session,revision:this.revision,seq:this.seq,dirty:this.dirty,pending:this.pending,
-        deleted:this.deleted,rows:metadata(this.rows),selection};
+        deleted:this.deleted,imported:this.imported,rows:metadata(this.rows),selection};
     }
   }
   const api={DraftState,metadata};

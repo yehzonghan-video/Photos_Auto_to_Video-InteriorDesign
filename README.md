@@ -2,7 +2,7 @@
 
 GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-video/Photos_Auto_to_Video-InteriorDesign)
 
-第一階段 MVP：Streamlit 網頁、照片管理、手動標籤、真正的滑鼠／觸控拖曳、動畫預覽、瀏覽器 MP4 能力偵測及 FFmpeg H.264 輸出。**此階段尚未接上 Gemini**，沒有模擬 AI 分析或假進度。請參閱 [技術可行性與限制](docs/FEASIBILITY.md)。
+可操作的 Streamlit 網頁：照片管理、前端即時標籤／拖曳、動畫預覽及 FFmpeg H.264 輸出。第二階段已加入 Google 官方 Gemini SDK、可編輯的 AI 建議清單與批次匯入；沒有金鑰時仍能手動製片。設定、模型查證與測試區分請參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
 
 本機實測結果、已驗證項目及測試限制記錄於 [VALIDATION.md](docs/VALIDATION.md)。
 
@@ -26,6 +26,7 @@ py -3.12 -m venv .venv
 1. 上傳 JPG／JPEG／PNG／WEBP，可一次多張；或載入 5 張自行繪製的測試示意圖。
 2. 在照片列點選照片，拖曳縮圖排序。觸控或鍵盤可使用前移／後移按鈕。刪除目前照片與單張替換在照片管理區。
 3. 設定每張秒數。預設「完整照片（空白處留黑）」等比例置中保留整張照片，橫式照片上下留黑；需要裁切時，可改選「填滿畫面（裁切照片）」再使用縮放及水平／垂直裁切滑桿。
+   可展開「AI 分析裝修項目」，閱讀資料政策後選擇 1～3 張分析；修改、勾選或刪除建議，再整批採用。匯入直接加入前端草稿，不覆蓋人工標籤。每次失敗皆可繼續手動操作。
 4. 按「新增標籤」立即顯示完整標籤，直接修改文字及樣式。拖曳畫面上的標籤；拖曳圓形定位點可單獨移動物件位置。這些操作只更新前端草稿，不觸發 Python 同步。
 5. 展開樣式與動畫設定：大小、字色、背景、透明度、圓角、連接線、出現／消失時間與進場時長。停留時間為 `消失時間 - 出現時間 - 進場時長`；標籤可錯開出現。
 6. 使用播放／時間軸預覽整部影片。編輯模式固定顯示全部標籤，選中框與定位點操作提示不會輸出到影片。
@@ -45,6 +46,7 @@ node --check frontend\editor.js
 node --test tests\animation.test.cjs
 node --test tests\photo-layout.test.cjs
 node --test tests\draft-state.test.cjs tests\editor-events.test.cjs
+node --test tests\ai-import.test.cjs
 ```
 
 影片驗證會建立 `artifacts/verification.mp4`、截圖與 JSON 結果（已忽略，不上傳 Git）。使用 5 張自行繪製的室內空間示意，每張 4 秒、中文標籤從左滑入；驗證 H.264、1080×1920、20 秒、600 影格及完整解碼。若電腦較慢可先用 `--width 360`。執行驗證腳本產生的示意圖不代表真實客戶案例或 Gemini 辨識。
@@ -56,10 +58,10 @@ UI 測試清單：新增與移動標籤、單獨拖定位點、改文字／樣�
 1. 將原始碼推送到自己的 GitHub repository，**不要提交 `.venv`、`.tmp`、`.tools`、`.streamlit/secrets.toml` 或使用者素材**。
 2. 在 Community Cloud 建立 app，入口 `app.py`，Python 選 3.12。
 3. Cloud 讀取 `requirements.txt`；`packages.txt` 安裝 `ffmpeg`、`fonts-noto-cjk`。應用程式的環境檢查會確認 libx264 與中文字型。
-4. 第一階段不用 Secrets。第二階段才把 `.streamlit/secrets.toml.example` 的 Gemini 設定放到 Cloud 的 Secrets，真實金鑰不得放在 repository 或前端。
+4. 手動流程不用 Secrets。啟用 AI 時，把 `.streamlit/secrets.toml.example` 的 Gemini 設定放到 Cloud 的 Secrets，填入未啟用帳務的免費專案金鑰。預設 `gemini-3.8-flash`：本次真實 API 確認 2.5 Flash 不向新使用者開放；仍可自行設定模型，程式不自動切換。真實金鑰不得放在 repository 或前端。
 5. 部署後先跑短片，再跑 20 秒 Full HD。**本專案本機成功不代表已公開部署，也不保證免費 Cloud 的效能**；能力不足時介面顯示錯誤，可改用瀏覽器輸出或本機 Streamlit。
 
-Cloud 安裝依據：[官方依賴文件](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies)。免費 Cloud 公開 app 可能被其他人使用，目前有張數、時間、檔案大小及程序同時輸出的限制；上線 AI 前需額外加入呼叫限流。
+Cloud 安裝依據：[官方依賴文件](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies)。免費 Cloud 公開 app 可能被其他人使用，目前有張數、時間、檔案大小、程序同時輸出及 AI 工作階段／程序共用限流；程序重新啟動會重置共用上限。
 
 ## 專案結構
 
@@ -71,16 +73,21 @@ studio/animation.py       可重用動畫時間公式
 studio/export.py          FFmpeg 能力檢查、負載控制、H.264 輸出
 studio/component.py       自訂元件 Python 介面
 studio/sync.py            批次同步、版本檢查、事件去重與輸出握手
+studio/ai.py              Gemini Structured Output、座標驗證、快取與限流
+studio/ai_ui.py           分析進度、結果確認與匯入佇列
 frontend/index.html       編輯器版面
 frontend/editor.js        拖曳、預覽、照片排序、瀏覽器錄製
 frontend/draft-state.js   前端草稿、跨 rerun 恢復與回覆合併
+frontend/ai-import.js     依最新構圖換算 AI 座標並批次附加草稿
 frontend/label-raster.js  未套用標籤的即時本機繪製
 frontend/animation.js     前端動畫公式
 templates/items.json      第一版模板設定
 scripts/verify_export.py  實際 20 秒影片驗證
+scripts/verify_gemini.py  真實 API 驗證（隱藏提示金鑰）
 tests/                    重要資料與動畫測試
 docs/FEASIBILITY.md        技術決策與已知限制
 docs/EDITOR_SYNC.md        同步架構、原因與效能驗證範圍
+docs/AI.md                AI 設定、資料政策、座標與實測限制
 .streamlit/               主題、Secrets 範例
 ```
 
@@ -88,7 +95,7 @@ docs/EDITOR_SYNC.md        同步架構、原因與效能驗證範圍
 
 ## 後續階段
 
-- 第二階段：Gemini 視覺 JSON、可見內容辨識、定性信心與待確認、單張重試、免費額度錯誤、批次／工作階段／程序配額限制。AI 失敗仍保留手動流程。
+- 第二階段已實作：Gemini Structured Output、可見內容辨識、定性信心與待確認、人工編輯採用、單張重分析、工作階段快取及配額限制。仍需用真實室內照片人工評估辨識準確率，以及驗證 Cloud 完整操作流程。
 - 第三階段：前後對比與案例特色模板、共用標籤及時間軸。
 - 第四階段：使用者 LOGO／背景音樂／品牌結尾、效能與操作優化。
 

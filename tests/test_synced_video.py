@@ -26,9 +26,12 @@ class SyncedVideoTests(unittest.TestCase):
                          line=False,start=0,enter=.2,color="#ffeecc",background="#502b19")
             row["labels"].append(label)
         row["labels"][0].update(text="最新標籤",font_size=60,color="#ffffff",background="#994422")
+        row["labels"][1].update(text="AI 確認標籤",source="gemini",description="使用者確認後的說明",
+            category="地板",confidence_level="中",needs_review=True,ai_item_id="confirmed-ai-item")
         consume_editor_event(state,dict(session="session",base_revision=1,nonce="export",seq=30,
                                        action="export",request="request",photos=[row]))
         self.assertTrue(state["editor_response"]["ok"])
+        self.assertEqual(photo.labels[1]["description"],"使用者確認後的說明")
         canonical=payload(state["photos"])["photos"][0]
         tiles=[]
         for label in photo.labels:
