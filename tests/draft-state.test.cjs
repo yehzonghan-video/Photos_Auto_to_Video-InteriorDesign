@@ -53,3 +53,14 @@ test('失敗回覆保留草稿，新工作階段不載入舊草稿',()=>{
   const saved=state.persisted();const fresh=new DraftState();assert.equal(fresh.restore(saved,'different-session'),false);
   state.receive(remote(),'different-session',0);assert.equal(state.rows[0].labels.length,0);
 });
+
+test('對比片段與各模板PNG在同步等待中新編輯不被舊回覆覆蓋，重建草稿不含素材內容',()=>{
+  const state=new DraftState(),photos=[{id:'b',image:'photo-bytes',tiles:{},labels:[],duration:4,role:'before'},{id:'a',image:'photo-bytes',tiles:{},labels:[],duration:4,role:'after'}];
+  const clip={id:'c',type:'comparison',before_id:'b',after_id:'a',duration:5,name:'原名稱',labels:[],tiles:{},image:'do-not-store'};
+  state.receive(photos,'s',1,null,[],[clip],[]);state.template='compare';state.touch(photos);const old=state.snapshot('pending');
+  state.comparisons[0].name='使用者新名稱';state.comparisonOverlays.push({id:'png',start:2,duration:2});state.touch(photos);
+  state.receive(photos,'s',2,{nonce:'pending',ok:true},[],old.comparisons,old.comparison_overlays);
+  assert.equal(state.comparisons[0].name,'使用者新名稱');assert.equal(state.comparisonOverlays.length,1);assert.equal(state.pending,null);
+  const saved=state.persisted();assert.equal(saved.comparisons[0].image,undefined);assert.equal(saved.rows[0].image,undefined);
+  const restored=new DraftState();assert.equal(restored.restore(saved,'s'),true);assert.equal(restored.comparisons[0].name,'使用者新名稱');assert.equal(restored.comparisonOverlays.length,1);
+});

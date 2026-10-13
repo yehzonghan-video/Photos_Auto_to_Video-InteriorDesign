@@ -4,7 +4,7 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 
 可操作的 Streamlit 網頁：照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層及 FFmpeg H.264 輸出。沒有金鑰時仍能手動製片。時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
 
-目前已完成第三階段的 3-1、3-2。基本操作流程：**上傳照片 → 選用 AI 標籤 → 加入 PNG → 編輯畫面與時間軸 → 預覽 → 輸出 MP4**。
+目前已完成第四階段「裝修前後對比」。先選擇裝修介紹或前後對比模板：**上傳照片 → 配對（對比模板）／選用 AI 標籤 → 加入 PNG → 編輯畫面與時間軸 → 預覽 → 輸出 MP4**。前後配對、三種模式及驗證見 [第四階段說明](docs/COMPARISON.md)。
 
 ## 目前功能
 
@@ -19,11 +19,12 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 | 草稿同步 | 前端即時操作；套用或輸出前才整批同步，切換照片與一般 rerun 保留編輯 |
 | 多軌時間軸 | 秒數刻度、播放指針、照片／文字／PNG 軌道、拖曳移動及左右裁切、重疊素材分列 |
 | PNG 圖層 | 自動讀取預設素材、透明 PNG 上傳、跨照片、畫布拖曳／縮放／旋轉、層級與進出場動畫 |
+| 裝修前後對比 | 雙上傳區、自動／手動配對、重用照片、切換／分割／真遮罩揭露、兩側獨立裁切、共用時間軸與輸出 |
 | 影片輸出 | FFmpeg H.264 MP4、9:16、1080×1920／30 FPS，另有 720p、360p 選項 |
 
-目前提供「裝修項目介紹」基礎模板；可用 PNG 放入自己的 LOGO。其他模板、背景音樂與專用品牌結尾尚未實作。沒有資料庫、登入或永久專案儲存。
+目前提供「裝修項目介紹」及「裝修前後對比」兩套模板，可用 PNG 放入自己的 LOGO。案例特色模板、背景音樂與專用品牌結尾尚未實作。沒有資料庫、登入或永久專案儲存。
 
-完整測試紀錄：[第三階段時間軸／PNG](docs/TIMELINE_PNG.md)、[AI 與第二階段測試](docs/AI.md)、[編輯器同步測試](docs/EDITOR_SYNC.md)、[第一階段歷史驗證](docs/VALIDATION.md)。
+完整測試紀錄：[第四階段對比](docs/COMPARISON.md)、[第三階段時間軸／PNG](docs/TIMELINE_PNG.md)、[AI 與第二階段測試](docs/AI.md)、[編輯器同步測試](docs/EDITOR_SYNC.md)、[第一階段歷史驗證](docs/VALIDATION.md)。
 
 ## 本機啟動（Windows PowerShell）
 
@@ -78,7 +79,17 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 AI 分析會把照片副本傳送至 Google。免費方案可能使用輸入及輸出改善產品，並由人工審閱；請勿傳送敏感、機密或個人資訊。介面會在分析前顯示提醒並要求勾選同意。[Google 資料使用政策](https://ai.google.dev/gemini-api/terms)
 
-## 操作方式
+## 裝修前後對比操作
+
+1. 側邊選「裝修前後對比」，分別加入施工前／後照片。兩區獨立保留選檔；縮圖分類、排序與刪除在編輯器來源庫，替換使用上方功能。
+2. 按「依順序自動配對」，或指定前／後照片「新增配對」。數量不等的照片保留未配對；可重用照片，配對可改、刪、拖曳調序。
+3. 每組選前後切換（直接／淡化／滑動）、左右分割或滑動揭露。設定停留及轉場；分割線可直接拖曳，揭露使用真正移動遮罩。
+4. 查看施工前或施工後，使用現有照片顯示方式與裁切控制獨立調整；再按「顯示對比畫面」。自動文字可編輯，PNG可跨組播放；AI分析來源後可「加入施工後照片標籤」。
+5. 預覽並直接輸出，最新配對、文字、裁切及PNG先整批同步。模板切換保留各自的片段與PNG，影片長度只依編輯器現有時間軸推導。
+
+來源合計最多12張，每组1～20秒、最多24組／120秒；重用來源不增加照片張數。其他規則與人工待測步驟見 [完整操作說明](docs/COMPARISON.md)。
+
+## 裝修項目介紹操作
 
 1. 上傳 JPG／JPEG／PNG／WEBP，可一次多張；或載入 5 張自行繪製的測試示意圖。
 2. 在照片列點選照片，拖曳縮圖排序。觸控或鍵盤可使用前移／後移按鈕。刪除目前照片與單張替換在照片管理區。
@@ -155,6 +166,8 @@ node --test tests/*.test.cjs
 
 大照片最佳化更新後：40 項 Python、22 項 Node 通過，新增真實4800萬畫素單張、7200萬畫素批次、預覽快取、EXIF與Full HD輸出驗證。詳見 [照片處理測試](docs/PHOTO_UPLOAD.md)。
 
+第四階段：47項 Python、29項 Node通過。實際產生10秒Full HD影片，涵蓋直接切換／淡化／滑動、左右分割、真遮罩揭露、文字與跨片段PNG，完整解碼及九個時間點像素比對。實際瀏覽器另測自動／手動重用配對、分割線與文字拖曳、獨立裁切、rerun草稿保留及15秒Full HD輸出。雙上傳批次控制與AI回歸使用Mock，真實雙區檔案選擇器、Cloud／其他瀏覽器仍需人工驗證，詳見 [第四階段驗證](docs/COMPARISON.md)。
+
 仍需人工測試真實客戶照片辨識準確率、實體觸控、其他瀏覽器、Cloud API 設定與多人負載。12 張完整實際 API 長佇列與真實 429 等候流程未以 Google 呼叫測試，避免刻意耗盡額度。
 
 ## Streamlit Community Cloud
@@ -184,6 +197,7 @@ app.py                    Streamlit 流程、上傳、工作階段與下載
 studio/models.py          原始照片、標籤、輸入驗證
 studio/photo_processing.py 原檔優先、容量自動最佳化、獨立預覽圖
 studio/overlays.py        PNG 素材庫、Alpha／資料驗證、縮放旋轉與合成
+studio/comparison.py      前後複合片段、配對驗證、逐影格遮罩／切換／分割
 studio/rendering.py       等比例裁切、共用 PNG 標籤、逐影格合成
 studio/animation.py       可重用動畫時間公式
 studio/export.py          FFmpeg 能力檢查、負載控制、H.264 輸出
@@ -201,8 +215,11 @@ frontend/timeline-model.js 唯一時間投影、素材移動與裁切
 frontend/timeline-ui.js    多軌 Canvas、播放指針與拖曳
 frontend/png-editor.js     PNG 素材庫、畫布把手與設定面板
 frontend/overlay-model.js  與 Python 相同的 PNG 幾何
+frontend/comparison-model.js 對比模型、時間、座標及姿態
+frontend/comparison-editor.js 來源庫、配對、獨立裁切、對比預覽
 assets/overlays/           自動讀取的開發者 PNG 素材
 templates/items.json      第一版模板設定
+templates/compare.json    裝修前後對比模板
 scripts/verify_export.py  實際 20 秒影片驗證
 scripts/verify_gemini.py  真實 API 驗證（隱藏提示金鑰）
 tests/                    重要資料與動畫測試
@@ -210,6 +227,7 @@ docs/FEASIBILITY.md        技術決策與已知限制
 docs/EDITOR_SYNC.md        同步架構、原因與效能驗證範圍
 docs/AI.md                AI 設定、資料政策、座標與實測限制
 docs/TIMELINE_PNG.md      第三階段操作、資料、同步與驗證
+docs/COMPARISON.md        第四階段資料結構、操作、檔案清單與人工測試
 .streamlit/               主題、Secrets 範例
 ```
 
@@ -219,6 +237,7 @@ docs/TIMELINE_PNG.md      第三階段操作、資料、同步與驗證
 
 - 第二階段已實作：Gemini Structured Output、可見內容辨識、定性信心與待確認、直接加入標籤、模型選擇、逐張排隊、補查、工作階段快取及配額限制。仍需用真實室內照片人工評估辨識準確率，以及驗證 Cloud 完整操作流程。
 - 第三階段已實作：多軌時間軸、獨立透明 PNG、直接操作與進出場動畫、共用輸出。仍需實體觸控、其他瀏覽器、Cloud 負載與真實使用者操作評估。
+- 第四階段已實作：前後照片分類、配對、三種對比模式、獨立裁切、共用時間軸及MP4；Gemini核心保留。
 - 後續：復原／重做、素材管理及專案匯出；再依需求加入其他模板、背景音樂與品牌結尾。
 
 參考影片尚未提供；模板 A 的基礎版以 9:16 照片、圓角標籤、定位點與進場動畫為範圍。沒有下載不明授權音樂、LOGO 或圖片。字型可透過 `STUDIO_FONT_PATH` 指定自己的合法字型檔；Cloud 使用系統 Noto CJK。

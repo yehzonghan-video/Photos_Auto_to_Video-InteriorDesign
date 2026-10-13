@@ -15,7 +15,7 @@ W, H = 1080, 1920
 
 def template_config(name="items"):
     # 只允許程式註冊的模板，避免任意路徑讀取。
-    if name not in ("items",):
+    if name not in ("items", "compare"):
         raise ValueError("此模板尚未提供。")
     return json.loads((ROOT / "templates" / f"{name}.json").read_text(encoding="utf-8"))
 

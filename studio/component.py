@@ -9,9 +9,9 @@ from .photo_processing import preview_data
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
 
-def payload(photos, cache=None, assets=None, overlays=None):
+def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, template="items", comparison_overlays=None):
     cache = {} if cache is None else cache
-    live_ids = {photo.id for photo in photos}
+    live_ids = {photo.id for photo in photos} | {"clip:"+c["id"] for c in comparisons or []}
     for ident in list(cache):
         if ident not in live_ids:
             del cache[ident]
@@ -37,5 +37,17 @@ def payload(photos, cache=None, assets=None, overlays=None):
             row["tiles"][label["id"]] = previous
         photo_assets["tiles"] = dict(row["tiles"])
         rows.append(row)
-    return dict(photos=rows, template=template_config(), schema_version=3,
-                assets=[asset.metadata() for asset in (assets or {}).values()], overlays=overlays or [])
+    clips=[]
+    for clip in comparisons or []:
+        row=dict(clip);row["tiles"]={}
+        cached=cache.setdefault("clip:"+clip["id"],{"tiles":{}})
+        for label in clip["labels"]:
+            style={key:label[key] for key in ("text","font_size","color","background","opacity","radius")}
+            tile=cached["tiles"].get(label["id"])
+            if tile is None or tile["style"]!=style:
+                image=label_tile(label);tile=dict(src=data_url(image),width=image.width,height=image.height,style=style)
+            row["tiles"][label["id"]]=tile
+        cached["tiles"]=dict(row["tiles"]);clips.append(row)
+    return dict(photos=rows, template=template_config(template), template_id=template, schema_version=4,
+                assets=[asset.metadata() for asset in (assets or {}).values()], overlays=overlays or [],
+                comparisons=clips, comparison_overlays=comparison_overlays or [])

@@ -62,6 +62,10 @@ def validate_label(raw, duration):
         if result["confidence_level"] not in ("高", "中", "低"):
             raise ValueError("AI 信心程度不正確。")
         result.update(source="gemini", needs_review=bool(raw.get("needs_review", True)))
+    if raw.get("comparison_side") in ("before", "after"):
+        result.update(comparison_side=raw["comparison_side"], auto_timing=bool(raw.get("auto_timing",False)))
+    if isinstance(raw.get("origin_label_id"),str):
+        result["origin_label_id"]=raw["origin_label_id"][:64]
     return result
 
 
@@ -79,10 +83,11 @@ class Photo:
     fit: str = "contain"
     labels: list = field(default_factory=list)
     optimization_note: str = ""
+    role: str = "general"
 
     def metadata(self):
         return {key: getattr(self, key) for key in
-                ("id", "name", "duration", "zoom", "crop_x", "crop_y", "fit", "labels")}
+                ("id", "name", "duration", "zoom", "crop_x", "crop_y", "fit", "labels", "role")}
 
 
 def load_photo(name, data):
@@ -106,9 +111,11 @@ def update_project(photos, rows):
         if not isinstance(row["labels"], list) or len(row["labels"]) > MAX_LABELS:
             raise ValueError("單張最多 12 個標籤。")
         labels = [validate_label(label, duration) for label in row["labels"]]
+        role=row.get("role",known[row["id"]].role)
+        if role not in ("general","before","after"):raise ValueError("照片分類不正確。")
         if len({label["id"] for label in labels}) != len(labels):
             raise ValueError("標籤識別碼不可重複。")
-        changes.append((known[row["id"]], dict(duration=duration, labels=labels, fit=fit,
+        changes.append((known[row["id"]], dict(duration=duration, labels=labels, fit=fit, role=role,
                         zoom=number(row["zoom"], 1, 3),
                         crop_x=number(row["crop_x"], 0, 1), crop_y=number(row["crop_y"], 0, 1))))
     if sum(c[1]["duration"] for c in changes) > MAX_TOTAL_SECONDS:

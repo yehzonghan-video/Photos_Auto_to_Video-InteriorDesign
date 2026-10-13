@@ -1,5 +1,7 @@
 # 第三階段：時間軸與 PNG 圖層
 
+本文件保留第三階段驗證記錄；目前新增對比片段及協定版本4，最新操作與測試請見 [COMPARISON.md](COMPARISON.md)。
+
 2026-10-13，3-1 時間軸基礎與 3-2 PNG 編輯／輸出整合已完成。沿用原本的 Streamlit 元件、JavaScript 草稿、AI 匯入與 Pillow／FFmpeg 輸出；沒有新增付費服務或套件。
 
 ## 修改檔案

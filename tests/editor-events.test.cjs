@@ -11,12 +11,13 @@ const StudioAnimation=require('../frontend/animation.js');
 const StudioAI=require('../frontend/ai-import.js');
 const StudioTimeline=require('../frontend/timeline-model.js');
 const StudioOverlay=require('../frontend/overlay-model.js');
+const StudioComparison=require('../frontend/comparison-model.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
     const handlers={},ctx={font:'46px sans-serif',measureText:text=>({width:text.length*46}),
       roundRect(){},beginPath(){},fill(){},fillText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
-      arc(){},save(){},restore(){},translate(){},rotate(){},strokeRect(){},setLineDash(){},drawImage(){draws++;}};
+      arc(){},rect(){},clip(){},save(){},restore(){},translate(){},rotate(){},strokeRect(){},setLineDash(){},drawImage(){draws++;}};
     return {tagName:tag,children:[],value:'',checked:true,disabled:false,hidden:false,width:1080,height:1920,
       classList:{toggle(){},add(){},remove(){}},dataset:{},style:{},
       getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:1080,height:1920}),
@@ -29,13 +30,14 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,crypto:webcrypto,console,
+    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
   vm.runInContext(fs.readFileSync('frontend/timeline-ui.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/png-editor.js','utf8'),context);
-  context.StudioTimelineUI=window.StudioTimelineUI;context.StudioPNG=window.StudioPNG;
+  vm.runInContext(fs.readFileSync('frontend/comparison-editor.js','utf8'),context);
+  context.StudioTimelineUI=window.StudioTimelineUI;context.StudioPNG=window.StudioPNG;context.StudioComparisonUI=window.StudioComparisonUI;
   vm.runInContext(fs.readFileSync('frontend/editor.js','utf8'),context);
   const rows=()=>[{id:'p1',content_hash:'hash',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
     {id:'p2',name:'second',image:'image2',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'}];
@@ -98,7 +100,7 @@ test('PNG新增、500次畫布移動、時間軸拖曳、指針跳轉與跨rerun
   const rebuilt=environment(env.storage);await rebuilt.receive({project:{photos:rebuilt.rows(),assets,overlays:[]}});
   assert.equal(vm.runInContext('draft.overlays.length',rebuilt.context),2);
   await rebuilt.receive({project:{photos:rebuilt.rows(),assets,overlays:[]},export_request:'png-export'});
-  const sent=rebuilt.changes()[0].value;assert.equal(sent.overlays.length,2);assert.equal(sent.schema_version,3);
+  const sent=rebuilt.changes()[0].value;assert.equal(sent.overlays.length,2);assert.equal(sent.schema_version,4);
   assert.equal(sent.overlays[0].rotation,45);assert.equal(sent.overlays[0].scale,1.5);
 });
 test('AI 整批匯入保留未同步人工標籤，rerun 與元件重建不重複，輸出帶最新AI標籤',async()=>{
@@ -134,4 +136,42 @@ test('輸出請求先傳送最新完整草稿，完成後解除鎖定',async()=>
   assert.equal(env.changes().length,2);
   assert.equal(env.changes()[1].value.action,'cancel_export','無效設定要取消等待，不讓後端輸出按鈕卡住');
   assert.equal(env.elements.get('text').value,'','無效草稿保留供使用者修正');
+});
+
+test('對比自動／重複配對、裁切、分割線500次拖曳、PNG及模板切換全部本地，输出使用最新片段',async()=>{
+  const env=environment(),get=id=>env.elements.get(id),rows=env.rows();rows[0].role='before';rows[1].role='after';
+  const assets=[{id:'asset',name:'透明圖層',image:'png-image',width:220,height:110}];
+  const originalOverlay={id:'items-png',type:'png',source:'asset',start:0,duration:3,enter:.5,exit:.5,layer:20};
+  const project=()=>({photos:rows,template_id:'compare',comparisons:[],comparison_overlays:[],assets,overlays:[originalOverlay]});
+  await env.receive({project:project()});get('autoPair').onclick();assert.equal(vm.runInContext('draft.comparisons.length',env.context),1);
+  get('autoPair').onclick();assert.equal(vm.runInContext('draft.comparisons.length',env.context),1);
+  get('addPair').onclick();assert.equal(vm.runInContext('draft.comparisons.length',env.context),2);
+  get('cmp_mode').value='split';get('cmp_mode').oninput();
+  get('canvas').dispatch('pointerdown',{clientX:540,clientY:1200});
+  for(let i=0;i<500;i++)get('canvas').dispatch('pointermove',{clientX:540+i/4,clientY:1200});get('canvas').dispatch('pointerup');
+  assert.ok(vm.runInContext('photo().split',env.context)>.6);assert.equal(env.changes().length,0);
+  get('viewBefore').onclick();get('fit').value='cover';get('fit').onchange();get('zoom').value=2;get('zoom').oninput();get('crop_x').value=.8;get('crop_x').oninput();
+  assert.equal(vm.runInContext('photo().before_crop.zoom',env.context),2);assert.equal(vm.runInContext('photo().after_crop.zoom',env.context),1);
+  get('cmp_mode').value='reveal';get('cmp_mode').oninput();get('cmp_direction').value='rtl';get('cmp_direction').oninput();
+  get('duration').value=6;get('duration').oninput();get('text').value='使用者修改施工文字';get('text').oninput();
+  get('assetLibrary').children[0].onclick();get('png_start').value=3;get('png_start').oninput();get('png_duration').value=4;get('png_duration').oninput();
+  assert.equal(env.changes().length,0);assert.equal(vm.runInContext('draft.overlays[0].id',env.context),'items-png');
+  const tc=get('timelineCanvas'),hit=vm.runInContext('timeline.hits.find(h=>h.item.type==="comparison")',env.context),x=(hit.x+hit.w/2)*1080/tc.width,y=(hit.y+10)*1920/tc.height;
+  tc.dispatch('pointerdown',{clientX:x,clientY:y});for(let i=0;i<100;i++)tc.dispatch('pointermove',{clientX:x+i,clientY:y});tc.dispatch('pointerup');
+  const saved=JSON.parse(env.storage.get('interior-studio-draft'));assert.equal(saved.comparisons.length,2);assert.equal(saved.comparisonOverlays.length,1);assert.equal(saved.rows[0].image,undefined);
+  await env.receive({project:{...project(),template_id:'items'}});assert.equal(vm.runInContext('sequence().length',env.context),2);
+  await env.receive({project:project()});assert.equal(vm.runInContext('draft.comparisons.length',env.context),2);
+  const rebuilt=environment(env.storage);await rebuilt.receive({project:project()});assert.equal(vm.runInContext('draft.comparisonOverlays.length',rebuilt.context),1);
+  await rebuilt.receive({project:project(),export_request:'compare-export'});const sent=rebuilt.changes()[0].value;
+  assert.equal(sent.template_id,'compare');assert.equal(sent.comparisons.length,2);assert.equal(sent.comparison_overlays.length,1);assert.equal(sent.overlays.length,1);
+  const edited=sent.comparisons.find(c=>c.mode==='reveal');assert.equal(edited.direction,'rtl');assert.equal(edited.duration,6);assert.equal(edited.before_crop.crop_x,.8);
+  assert.ok(edited.labels.some(l=>l.text==='使用者修改施工文字'));
+});
+
+test('對比刪除片段不刪來源照片；加入施工後標籤保留原標籤且去重',async()=>{
+  const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
+  rows[1].labels=[{id:'ai',text:'來源AI標籤',x:.2,y:.4,point_x:.5,point_y:.5,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'fade',start:0,end:4,enter:.3}];
+  await env.receive({project:{photos:rows,template_id:'compare'}});env.elements.get('autoPair').onclick();env.elements.get('copyAfterLabels').onclick();env.elements.get('copyAfterLabels').onclick();
+  assert.equal(vm.runInContext('photo().labels.length',env.context),3);assert.equal(vm.runInContext('photos[1].labels.length',env.context),1);
+  env.elements.get('deletePhoto').onclick();assert.equal(vm.runInContext('draft.comparisons.length',env.context),0);assert.equal(vm.runInContext('photos.length',env.context),2);assert.equal(env.changes().length,0);
 });

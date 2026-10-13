@@ -30,7 +30,9 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 editor_session=uuid.uuid4().hex, editor_seen=[], editor_response=None,
                 editor_assets={}, pending_export=None, editor_busy=False,
                 ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
-                ai_queue=[], ai_delivered={}, ai_pending={}, overlays=[], png_epoch=0)
+                ai_queue=[], ai_delivered={}, ai_pending={}, overlays=[], png_epoch=0,
+                comparisons=[], comparison_overlays=[], template_mode="items", last_template="items",
+                photo_upload_epochs={"general":0,"before":0,"after":0})
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -42,8 +44,8 @@ if st.session_state.get("photo_preview_version") != 1:
     st.session_state.editor_assets = {}
 
 # 升級元件協定時保留照片，只清除舊版素材 payload 與舊 widget 事件。
-if st.session_state.get("editor_protocol") != 3:
-    st.session_state.editor_protocol = 3
+if st.session_state.get("editor_protocol") != 4:
+    st.session_state.editor_protocol = 4
     st.session_state.project_payload = None
     st.session_state.editor_assets = {}
     st.session_state.editor_response = None
@@ -72,14 +74,31 @@ def optimization_notice(photos, previous):
                     if p.optimization_note and p.original is not original.get(p.id))
 
 
+def add_uploaded(uploaded, role="general"):
+    if len(st.session_state.photos)+len(uploaded)>MAX_PHOTOS:
+        raise ValueError("每個工作階段最多12張來源照片；配對可重複使用同一張。")
+    new=[load_photo(item.name,item.getvalue()) for item in uploaded]
+    for photo in new:photo.role=role
+    proposed=check_capacity(st.session_state.photos+new)
+    if sum(p.duration for p in proposed)>120:
+        raise ValueError("照片總長最多120秒，請先縮短現有照片秒數。")
+    note=optimization_notice(proposed,st.session_state.photos)
+    st.session_state.photos=proposed;st.session_state.uploader_epoch+=1
+    st.session_state.photo_upload_epochs[role]+=1
+    invalidate();st.session_state.notice=f"已加入 {len(new)} 張照片。 "+note
+
+
 with st.sidebar:
     st.markdown("### 案例影片工作室")
-    st.caption("第三階段 · 時間軸與 PNG 圖層")
+    st.caption("第四階段 · 裝修前後對比")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
-    config = template_config()
-    st.selectbox("影片模板", [config["name"]])
-    st.caption("AI 標籤與 PNG 圖層可自由編輯；其他模板、音樂與品牌結尾將在後續階段加入。")
+    st.selectbox("影片模板", ["items","compare"], key="template_mode",
+                 format_func=lambda key:template_config(key)["name"],
+                 disabled=st.session_state.editor_busy or st.session_state.pending_export is not None)
+    if st.session_state.last_template!=st.session_state.template_mode:
+        st.session_state.last_template=st.session_state.template_mode;invalidate()
+    st.caption("可切換裝修介紹或前後對比；各模板保留自己的片段、標籤與 PNG 草稿。")
     with st.expander("執行環境檢查", expanded=False):
         try:
             info = capabilities()
@@ -102,6 +121,7 @@ with st.sidebar:
         st.session_state.pending_export = None
         st.session_state.editor_busy = False
         st.session_state.overlays = []
+        st.session_state.comparisons=[];st.session_state.comparison_overlays=[]
         st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
         st.session_state.png_epoch += 1
         for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
@@ -111,6 +131,7 @@ with st.sidebar:
         st.session_state.pop("ai_consent", None)
         st.session_state.pop("render_job", None)
         st.session_state.uploader_epoch += 1
+        st.session_state.photo_upload_epochs={role:epoch+1 for role,epoch in st.session_state.photo_upload_epochs.items()}
         invalidate()
         st.rerun()
 
@@ -128,34 +149,28 @@ if st.session_state.notice:
     st.session_state.notice_error = False
 
 st.subheader("01　準備案例照片")
-upload_col, demo_col = st.columns([3, 1])
-with upload_col:
-    uploaded = st.file_uploader("加入照片（可一次多張）", type=["jpg", "jpeg", "png", "webp"],
-                                accept_multiple_files=True, max_upload_size=200,
-                                key=f"uploads_{st.session_state.uploader_epoch}")
-    st.caption("一般照片保留原檔；大照片或整批負荷較高時自動等比例最佳化，不會因總畫素超標而擋下。")
-    if st.button("加入已選照片", disabled=not uploaded, type="primary"):
-        try:
-            if len(st.session_state.photos) + len(uploaded) > MAX_PHOTOS:
-                raise ValueError("每個工作階段最多 12 張照片。")
-            with st.spinner("正在準備照片；大照片會自動最佳化…"):
-                new = [load_photo(item.name, item.getvalue()) for item in uploaded]
-                proposed = check_capacity(st.session_state.photos + new)
-            if sum(p.duration for p in proposed) > 120:
-                raise ValueError("影片總長最多 120 秒，請先縮短現有照片秒數。")
-            note = optimization_notice(proposed, st.session_state.photos)
-            st.session_state.photos = proposed
-            st.session_state.uploader_epoch += 1
-            invalidate()
-            st.session_state.notice = f"已加入 {len(new)} 張照片。 " + note
-            st.rerun()
-        except (ValueError, OSError, MemoryError) as exc:
-            st.error(str(exc) or "記憶體不足，無法完成這批照片的自動最佳化，請稍後重試。")
-with demo_col:
+compare_mode=st.session_state.template_mode=="compare"
+sources=[("before","施工前照片（可一次多張）","加入施工前照片"),("after","施工後照片（可一次多張）","加入施工後照片")] if compare_mode else [("general","加入照片（可一次多張）","加入已選照片")]
+columns=st.columns([3]*len(sources)+[1])
+for col,(role,title,button_name) in zip(columns,sources):
+    with col:
+        uploaded=st.file_uploader(title,type=["jpg","jpeg","png","webp"],accept_multiple_files=True,
+                                 max_upload_size=200,key=f"uploads_{role}_{st.session_state.photo_upload_epochs[role]}")
+        st.caption("一般照片保留原檔；大照片或整批負荷較高時自動等比例最佳化。")
+        if st.button(button_name,disabled=not uploaded,type="primary"):
+            try:
+                with st.spinner("正在準備照片；大照片會自動最佳化…"):add_uploaded(uploaded,role)
+                st.rerun()
+            except (ValueError,OSError,MemoryError) as exc:
+                st.error(str(exc) or "記憶體不足，請稍後重試。")
+with columns[-1]:
     st.caption("想先試操作？")
-    if st.button("載入 5 張測試示意圖", use_container_width=True, disabled=bool(st.session_state.photos)):
+    if st.button("載入前後對比測試圖" if compare_mode else "載入 5 張測試示意圖", use_container_width=True, disabled=bool(st.session_state.photos)):
         from scripts.verify_export import samples
-        st.session_state.photos = samples()
+        demo=samples()[:4] if compare_mode else samples()
+        if compare_mode:
+            for i,p in enumerate(demo):p.role="before" if i<2 else "after"
+        st.session_state.photos=demo
         invalidate()
         st.session_state.notice = "已載入自行繪製的室內空間示意圖，供測試操作與輸出；並非真實案例或 AI 辨識。"
         st.rerun()
@@ -179,6 +194,7 @@ with st.expander("替換單張照片", expanded=False):
             fresh.id = target.id
             fresh.duration, fresh.zoom, fresh.crop_x, fresh.crop_y = target.duration, target.zoom, target.crop_x, target.crop_y
             fresh.fit = getattr(target, "fit", "contain")
+            fresh.role=target.role
             fresh.labels = target.labels
             proposed = [fresh if p.id == target_id else p for p in photos]
             proposed = check_capacity(proposed)
@@ -218,7 +234,8 @@ st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成�
 try:
     if st.session_state.project_payload is None:
         st.session_state.project_payload = payload(photos, st.session_state.editor_assets,
-                                                   st.session_state.overlay_assets, st.session_state.overlays)
+                 st.session_state.overlay_assets, st.session_state.overlays,st.session_state.comparisons,
+                 st.session_state.template_mode,st.session_state.comparison_overlays)
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,
@@ -238,7 +255,8 @@ with options:
     render_clicked = st.button("輸出 H.264 MP4", type="primary", use_container_width=True,
                                disabled=st.session_state.editor_busy or st.session_state.pending_export is not None)
 with summary:
-    st.markdown(f"**{len(photos)} 張照片 · {sum(p.duration for p in photos):.1f} 秒 · 9:16**")
+    st.markdown(f"**{len(photos)} 張來源照片 · 9:16**")
+    st.caption("影片長度以編輯器時間軸為準；輸出前自動套用最新變更。")
     st.caption("免費本機／伺服器渲染。照片不寫入永久目錄；產生的壓縮影片暫存檔會在完成或失敗後清除。")
 
 if render_clicked:
@@ -253,7 +271,9 @@ if job:
     try:
         data = export_video(photos, job["width"], job["width"]*16//9,
                             progress=lambda value, message: bar.progress(value, text=message),
-                            overlays=st.session_state.overlays, assets=st.session_state.overlay_assets)
+                            overlays=st.session_state.comparison_overlays if compare_mode else st.session_state.overlays,
+                            assets=st.session_state.overlay_assets,template=st.session_state.template_mode,
+                            comparisons=st.session_state.comparisons)
         st.session_state.output = data
         st.session_state.output_seconds = round(time.monotonic() - started, 1)
     except (RuntimeError, ValueError, OSError, TimeoutError) as exc:

@@ -1,6 +1,8 @@
 """元件批次同步交易：驗證版本、去重、以整份草稿替換，而非附加標籤。"""
 from .models import update_project
 from .overlays import validate_overlays
+from dataclasses import replace
+from .comparison import validate_comparisons
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -45,15 +47,26 @@ def consume_editor_event(state, event):
         state["editor_response"] = dict(nonce=nonce, ok=False, message="請先修正編輯器欄位，再重新輸出。")
         return
     try:
-        # 先驗證 PNG，再進行會修改照片的交易，失敗時不留下半套更新。
-        rows = event.get("photos", [])
-        duration = sum(float(row["duration"]) for row in rows)
+        # 用輕量 Photo 複本先驗證全部設定，原始 bytes 共用；成功才一起提交。
+        template=state.get("template_mode","items")
+        if event.get("template_id",template)!=template:
+            raise ValueError("模板已切換，草稿保留；請再次套用。")
+        staged=apply_editor_event([replace(p) for p in state["photos"]],event,state["editor_session"],
+                                  state["revision"],request["id"] if request else None)
+        clips=validate_comparisons(event.get("comparisons",state.get("comparisons",[])),staged)
+        duration=sum(p.duration for p in staged)
         overlays = validate_overlays(event.get("overlays", state.get("overlays", [])),
                                      state.get("overlay_assets", {}), duration)
+        comparison_overlays=validate_overlays(event.get("comparison_overlays",state.get("comparison_overlays",[])),
+                                      state.get("overlay_assets",{}),sum(c["duration"] for c in clips))
+        if template=="compare" and event.get("action")=="export" and not clips:
+            raise ValueError("請先新增一組前後配對再輸出。")
         photos = apply_editor_event(state["photos"], event, state["editor_session"],
                                     state["revision"], request["id"] if request else None)
         state["photos"] = photos
         state["overlays"] = overlays
+        state["comparisons"]=clips
+        state["comparison_overlays"]=comparison_overlays
         acknowledgements = event.get("imported_batches", [])
         if isinstance(acknowledgements, list):
             state["ai_imports"] = [batch for batch in state.get("ai_imports", [])

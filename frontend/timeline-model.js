@@ -1,11 +1,12 @@
 // 時間軸只投影既有照片／標籤資料；PNG 的開始與長度為全片時間。
 (function(root){
+  const Comparison=typeof module!=='undefined'?require('./comparison-model.js'):root.StudioComparison;
   const FPS=30,MIN=1/FPS,clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),snap=v=>Math.round(v*FPS)/FPS;
   const total=photos=>photos.reduce((n,p)=>n+p.duration,0);
   function items(photos,overlays=[]){
     let offset=0;const result=[];
     for(const p of photos){
-      result.push({id:p.id,type:'photo',source:p.id,start:offset,duration:p.duration,layer:0,name:p.name});
+      result.push({id:p.id,type:p.type==='comparison'?'comparison':'photo',source:p.id,start:offset,duration:p.duration,layer:0,name:p.name});
       for(const l of p.labels)result.push({id:l.id,type:'label',source:p.id,start:offset+l.start,
         duration:l.end-l.start,layer:l.layer??10,name:l.text});
       offset+=p.duration;
@@ -20,15 +21,16 @@
     for(const o of overlays){o.start=clamp(o.start,0,length-MIN);o.duration=clamp(o.duration,MIN,length-o.start);fitAnimations(o);}
   }
   function photoDuration(p,value){
+    if(p.type==='comparison'){Comparison.resize(p,value);return;}
     p.duration=clamp(snap(value),1,20);
     for(const l of p.labels){l.start=Math.min(l.start,p.duration-MIN);l.end=Math.max(l.start+MIN,Math.min(l.end,p.duration));l.enter=Math.min(l.enter,l.end-l.start);}
   }
   function edit(item,mode,delta,photos,overlays){
     delta=snap(delta);
     const p=photos.find(p=>p.id===item.source);
-    if(item.type==='photo'){
+    if(['photo','comparison'].includes(item.type)){
       if(mode==='move'){
-        const t=clamp(item.start+delta,0,total(photos)-MIN),tracks=items(photos).filter(i=>i.type==='photo');
+        const t=clamp(item.start+delta,0,total(photos)-MIN),tracks=items(photos).filter(i=>['photo','comparison'].includes(i.type));
         const target=Math.max(0,tracks.findIndex(i=>t<i.start+i.duration)),index=photos.findIndex(p=>p.id===item.id);
         if(index!==target){const [moved]=photos.splice(index,1);photos.splice(target,0,moved);}
       }else if(mode==='right')photoDuration(p,item.duration+delta);
@@ -39,13 +41,13 @@
       }
       clampOverlays(overlays,total(photos));return;
     }
-    const startBound=item.type==='label'?items(photos).find(i=>i.type==='photo'&&i.id===p.id).start:0;
+    const startBound=item.type==='label'?items(photos).find(i=>['photo','comparison'].includes(i.type)&&i.id===p.id).start:0;
     const endBound=item.type==='label'?startBound+p.duration:total(photos);
     let start=item.start,end=item.start+item.duration;
     if(mode==='move'){start=clamp(start+delta,startBound,endBound-item.duration);end=start+item.duration;}
     else if(mode==='left')start=clamp(start+delta,startBound,end-MIN);
     else end=clamp(end+delta,start+MIN,endBound);
-    if(item.type==='label'){const l=p.labels.find(l=>l.id===item.id);l.start=start-startBound;l.end=end-startBound;l.enter=Math.min(l.enter,l.end-l.start);}
+    if(item.type==='label'){const l=p.labels.find(l=>l.id===item.id);l.start=start-startBound;l.end=end-startBound;l.enter=Math.min(l.enter,l.end-l.start);if(l.comparison_side)l.auto_timing=false;}
     else {const o=overlays.find(o=>o.id===item.id);o.start=start;o.duration=end-start;fitAnimations(o);}
   }
   function lanes(clips){

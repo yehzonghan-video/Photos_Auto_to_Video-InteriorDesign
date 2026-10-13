@@ -7,6 +7,12 @@
 </head>
 <body>
 <section class="studio">
+  <section id="comparisonBank" hidden class="comparison-bank">
+    <div class="strip-header"><strong>前後照片與配對</strong><button id="autoPair" class="primary">依順序自動配對</button></div>
+    <div id="sourceBank" class="source-bank"></div>
+    <div class="row"><label class="field">新增配對：施工前<select id="newBefore"></select></label><label class="field">施工後<select id="newAfter"></select></label><button id="addPair">新增配對</button></div>
+    <p id="pairSummary" class="hint"></p>
+  </section>
   <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span><button id="applyChanges" class="primary">套用變更</button></div>
   <div id="photos" class="photos" aria-label="照片播放順序"></div>
   <details class="asset-section" open><summary>PNG 素材庫 · 點選加入全片時間軸</summary><div id="assetLibrary" class="asset-library"></div><p class="hint">自己的透明 PNG 請使用上方「上傳 PNG 素材」。圖層可跨照片，所有拖曳先存在此頁。</p></details>
@@ -22,6 +28,23 @@
       <div id="browserResult" hidden><a id="browserDownload" download="室內設計案例.mp4">下載瀏覽器 MP4</a><video id="browserVideo" controls playsinline></video></div>
     </section>
     <aside class="controls">
+      <div id="comparisonForm" hidden>
+        <div class="section-title">對比片段設定</div>
+        <div id="comparisonClock" class="hint"></div>
+        <label class="field">片段名稱<input id="cmp_name" maxlength="80"></label>
+        <label class="field">配對：施工前<select id="cmp_before_id"></select></label><label class="field">配對：施工後<select id="cmp_after_id"></select></label>
+        <label class="field">對比模式<select id="cmp_mode"><option value="switch">前後切換</option><option value="split">左右分割</option><option value="reveal">滑動揭露</option></select></label>
+        <label class="field">切換轉場<select id="cmp_transition"><option value="cut">直接切換</option><option value="fade">淡入淡出</option><option value="slide">左右滑動</option></select></label>
+        <label class="field">滑動／揭露方向<select id="cmp_direction"><option value="ltr">左至右</option><option value="rtl">右至左</option></select></label>
+        <div class="row"><label class="field">施工前停留<input id="cmp_before_time" type="number" min="0" step=".1"></label><label class="field">轉場／揭露時間<input id="cmp_transition_time" type="number" min="0" step=".1"></label></div>
+        <label class="field">施工後停留<input id="cmp_after_time" type="number" min=".033333" step=".1"></label>
+        <label class="field">左右分割比例<input id="cmp_split" type="range" min=".1" max=".9" step=".01"></label>
+        <label class="check"><input id="cmp_show_line" type="checkbox" checked>顯示分割線</label>
+        <label class="field">獨立裁切／對齊<select id="cmp_crop_side"><option value="before">調整施工前</option><option value="after">調整施工後</option></select></label>
+        <div class="row"><button id="viewBefore">查看施工前</button><button id="viewAfter">查看施工後</button><button id="viewComparison">顯示對比畫面</button></div>
+        <div class="row"><button id="copyAfterLabels">加入施工後照片標籤</button><button id="addComparisonTitle">新增片段標題標籤</button></div>
+        <p class="hint">選擇裁切對象後，下方照片顯示方式與裁切控制只調整該側。左右分割可直接拖曳畫布上的分割線。片段及標籤時間以此組配對開始為基準。</p>
+      </div>
       <div class="section-title">照片設定 <span id="photoNumber"></span></div>
       <label class="field">顯示秒數<input id="duration" type="number" min="1" max="20" step=".1" value="4"></label>
       <div class="row"><button id="moveLeft">← 前移</button><button id="moveRight">後移 →</button><button id="deletePhoto" class="danger">刪除照片</button></div>
@@ -78,5 +101,5 @@
     <p class="hint">紅線為播放指針。PNG 使用全片時間；文字隨照片順序移動。照片縮短會截短附屬標籤及超過影片結尾的 PNG。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="editor.js"></script>
 </body></html>

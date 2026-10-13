@@ -12,7 +12,7 @@
     draw(){
       const h=this.hooks,p=h.photos(),length=StudioTimeline.total(p),all=StudioTimeline.items(p,h.overlays());
       this.length=length;this.width=Math.round(Math.max(600,this.canvas.parentElement?.clientWidth||900)*this.zoom);
-      const tracks=[{name:'照片',color:'#5d7760',rows:1,clips:all.filter(i=>i.type==='photo').map(item=>({item,lane:0}))},
+      const tracks=[{name:p[0]?.type==='comparison'?'對比':'照片',color:'#5d7760',rows:1,clips:all.filter(i=>['photo','comparison'].includes(i.type)).map(item=>({item,lane:0}))},
         {name:'文字',color:'#b37b44',...StudioTimeline.lanes(all.filter(i=>i.type==='label'))},
         {name:'PNG',color:'#6b6caa',...StudioTimeline.lanes(all.filter(i=>i.type==='png'))}];
       const height=32+tracks.reduce((n,t)=>n+t.rows*36,0);

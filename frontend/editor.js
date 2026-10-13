@@ -10,9 +10,13 @@ const waiters=new Map();
 let photoDragId=null, editRaf=0, serverBusy=false, preparing=false;
 let lastRevision=null, recordingFailure=null, activeExportRequest=null, receivedSession=null, storageFailed=false;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const photo = () => photos.find(p => p.id === selectedPhoto) || photos[0];
+const isCompare=()=>draft.template==='compare';
+const sequence=()=>isCompare()?draft.comparisons:photos;
+const projectOverlays=()=>isCompare()?draft.comparisonOverlays:draft.overlays;
+const photo = () => sequence().find(p => p.id === selectedPhoto) || sequence()[0];
+const cropPhoto=()=>isCompare()?photo()?.[comparisonEditor.cropSide+'_crop']:photo();
 const label = () => photo()?.labels.find(l => l.id === selectedLabel);
-const total = () => photos.reduce((sum, p) => sum + Number(p.duration), 0);
+const total = () => sequence().reduce((sum, p) => sum + Number(p.duration), 0);
 function status(message, error = false) { $('status').textContent = message; $('status').classList.toggle('error', error); }
 function post(type, extra = {}) { window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, '*'); }
 function resize() { post('streamlit:setFrameHeight', {height:Math.ceil(document.querySelector('.studio').getBoundingClientRect().height) + 8}); }
@@ -20,7 +24,9 @@ new ResizeObserver(resize).observe(document.querySelector('.studio'));
 function metadata() { return photos.map(({image, tiles, ...row}) => row); }
 function validProject() {
   if (total() > 120) { status('影片總長最多 120 秒，請縮短照片秒數。', true); return false; }
-  for (const p of photos) {
+  const comparisonError=StudioComparison.validate(draft.comparisons,photos);
+  if(comparisonError){status(comparisonError,true);return false;}
+  for (const p of [...photos,...draft.comparisons]) {
     if (!Number.isFinite(p.duration) || p.duration < 1 || p.duration > 20) {status('每張照片需為 1～20 秒。', true); return false;}
     for (const l of p.labels) {
       if (!l.text.trim() || l.text.length > 80 || !Number.isFinite(l.start) || !Number.isFinite(l.end) || !Number.isFinite(l.enter) ||
@@ -30,8 +36,8 @@ function validProject() {
       }
     }
   }
-  if(draft.overlays.length>32){status('全片最多32個PNG圖層。',true);return false;}
-  for(const o of draft.overlays){
+  if(projectOverlays().length>32){status('全片最多32個PNG圖層。',true);return false;}
+  for(const o of projectOverlays()){
     if(!assetMeta.has(o.source)||o.duration<1/30-1e-8||o.start<0||o.start+o.duration>total()+1e-7||o.enter+o.exit>o.duration+1e-7){
       status('請確認PNG素材、開始與結束時間及進出場時長。',true);return false;}
   }
@@ -54,7 +60,10 @@ function syncStatus() {
 function markEdited(persist=true) {
   const priorPhoto=selectedPhoto;
   draft.touch(photos);clearBrowserResult();
-  StudioTimeline.clampOverlays(draft.overlays,total());
+  comparisonEditor.prune();
+  StudioTimeline.clampOverlays(draft.overlays,StudioTimeline.total(photos));
+  StudioTimeline.clampOverlays(draft.comparisonOverlays,StudioTimeline.total(draft.comparisons));
+  if(!sequence().some(p=>p.id===selectedPhoto)){selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;}
   time=clamp(time,0,Math.max(0,total()-1/30));
   const active=pngEditor.item();
   if(editing&&active&&!pngEditor.active(active)){time=active.start;selectedPhoto=locate(time).photo?.id;}
@@ -103,9 +112,14 @@ window.addEventListener('message', async event => {
       }catch(error){sessionStorage.removeItem(storageKey);}
       receivedSession=args.session;
     }
-    const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[]);
+    const templateChanged=draft.template!==(args.project.template_id||'items');
+    const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[],
+                              args.project.comparisons||[],args.project.comparison_overlays||[]);
     if(result.stale)return;
     photos=draft.rows;
+    draft.template=args.project.template_id||'items';
+    comparisonEditor.prune();
+    if(templateChanged){stopPlayback();editing=true;time=0;selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;comparisonEditor.view='combined';}
     const images = new Map(), tiles = new Map();
     await Promise.all(rows.map(async p => {
       images.set(p.id, imageCache.get(p.id)?.src === p.image ? imageCache.get(p.id) : await loadImage(p.image));
@@ -114,6 +128,10 @@ window.addEventListener('message', async event => {
         tiles.set(id, current?.src===data.src?current:{image:await loadImage(data.src),key,src:data.src});
       }
     }));
+    for(const p of args.project.comparisons||[])for(const [id,data] of Object.entries(p.tiles||{})){
+      const current=tileCache.get(id),key=StudioLabel.key(data.style);
+      tiles.set(id,current?.src===data.src?current:{image:await loadImage(data.src),key,src:data.src});
+    }
     const assets=args.project.assets||[],pngImages=new Map();
     await Promise.all(assets.map(async asset=>pngImages.set(asset.id,assetCache.get(asset.id)||await loadImage(asset.image))));
     if (generation !== renderGeneration) return;
@@ -131,10 +149,10 @@ window.addEventListener('message', async event => {
       if(imported.added){markEdited();editing=true;stopPlayback();}
       if(imported.messages.length)$('aiStatus').textContent=imported.messages.join(' ');
     }
-    if (!photos.some(p => p.id === selectedPhoto)) selectedPhoto = photos[0]?.id;
+    if (!sequence().some(p => p.id === selectedPhoto)) selectedPhoto = sequence()[0]?.id;
     if (!photo()?.labels.some(l => l.id === selectedLabel)) selectedLabel = photo()?.labels[0]?.id;
     time=clamp(time,0,Math.max(0,total()-1/30));
-    pngEditor.library();buildPhotos(); buildLabels(); fillForm(); draw(); support();
+    pngEditor.library();comparisonEditor.library();buildPhotos(); buildLabels(); fillForm(); draw(); support();
     lockEditor(recording||preparing||serverBusy);if(!recording&&!preparing)syncStatus();
     persistDraft();resize();
     if(result.matched) {
@@ -159,10 +177,10 @@ function button(text, fn, className = '') {
 }
 function buildPhotos() {
   $('photos').replaceChildren();
-  photos.forEach((p, index) => {
+  const active=sequence();active.forEach((p, index) => {
     const item = button('', () => selectMaterial({type:'photo',id:p.id,source:p.id,start:photoOffset(p.id)}), 'photo' + (p.id === selectedPhoto ? ' active' : ''));
     item.draggable = true; item.dataset.photoId = p.id; item.title = p.name;
-    const img = document.createElement('img'); img.src = p.image; img.alt = p.name;
+    const img = document.createElement('img'); img.src = p.image||photos.find(row=>row.id===p.after_id)?.image||''; img.alt = p.name;
     const caption = document.createElement('span'); caption.textContent = `${index+1} · ${p.duration}s · ${p.name}`;
     item.append(img, caption);
     item.ondragstart = e => {if(recording||preparing||serverBusy){e.preventDefault();return;} photoDragId=p.id; e.dataTransfer.setData('text/plain',p.id);};
@@ -170,14 +188,14 @@ function buildPhotos() {
     item.ondragleave = () => item.classList.remove('drag-over');
     item.ondrop = e => {
       e.preventDefault(); item.classList.remove('drag-over');
-      const source = photos.findIndex(row => row.id === photoDragId), target = photos.findIndex(row => row.id === p.id);
+      const source = active.findIndex(row => row.id === photoDragId), target = active.findIndex(row => row.id === p.id);
       if (source < 0 || target < 0 || recording||preparing||serverBusy) return;
-      const [moved] = photos.splice(source,1); photos.splice(target,0,moved);
+      const [moved] = active.splice(source,1); active.splice(target,0,moved);
       stopPlayback(); editing=true; buildPhotos(); markEdited();
     };
     $('photos').append(item);
   });
-  $('total').textContent = `${photos.length} 張 · ${total().toFixed(1)} 秒`;
+  $('total').textContent = `${active.length} ${isCompare()?'組對比':'張'} · ${total().toFixed(1)} 秒`;
   $('seek').max = Math.max(0, total() - 1/30);
 }
 function buildLabels() {
@@ -190,10 +208,14 @@ function buildLabels() {
 }
 const labelFields = ['text','font_size','color','background','opacity','radius','line','animation','start','end','enter','layer'];
 function fillForm() {
-  const p=photo(); if(!p)return;
-  if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${photos.findIndex(row=>row.id===p.id)+1} / ${photos.length}`;
-  for (const key of ['zoom','crop_x','crop_y']) $(key).value=p[key];
-  $('fit').value=p.fit || 'contain';
+  comparisonEditor.refresh();
+  $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
+  $('edit').textContent=isCompare()?'編輯對比片段':'編輯目前照片';
+  for(const key of ['duration','fit','zoom','crop_x','crop_y','moveLeft','moveRight','deletePhoto','addLabel'])$(key).disabled=!photo()||recording||preparing||serverBusy;
+  const p=photo(); if(!p){$('labelForm').hidden=true;$('overlayForm').hidden=true;return;}
+  if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${sequence().findIndex(row=>row.id===p.id)+1} / ${sequence().length}`;
+  for (const key of ['zoom','crop_x','crop_y']) $(key).value=cropPhoto()[key];
+  $('fit').value=cropPhoto().fit || 'contain';
   for (const key of ['zoom','crop_x','crop_y']) $(key).disabled=recording || $('fit').value==='contain';
   const l=label(); $('labelForm').hidden=!l;
   if(l) {
@@ -211,7 +233,7 @@ function info() {
 }
 function locate(t) {
   let offset=0;
-  for(let i=0;i<photos.length;i++) {if(t<offset+photos[i].duration || i===photos.length-1)return {photo:photos[i],local:t-offset}; offset+=photos[i].duration;}
+  const rows=sequence();for(let i=0;i<rows.length;i++) {if(t<offset+rows[i].duration || i===rows.length-1)return {photo:rows[i],local:t-offset}; offset+=rows[i].duration;}
   return {photo:null,local:0};
 }
 function tileFor(l) {
@@ -226,13 +248,14 @@ function bounds(l) {
 }
 function draw() {
   const state=editing?{photo:photo(),local:time-photoOffset(photo()?.id)}:locate(time), p=state.photo;
-  ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p)return;
+  ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p){$('clock').textContent='0.0 / 0.0 s';$('seek').value=0;timeline.draw();return;}
   const image=imageCache.get(p.id);
-  if(image) {
+  if(isCompare())comparisonEditor.draw(ctx,p,state.local,editing);
+  else if(image) {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
     ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
   }
-  const materials=p.labels.map((l,index)=>({layer:l.layer??10,index,label:l})).concat(draft.overlays.map((o,index)=>({layer:o.layer,index:p.labels.length+index,overlay:o})));
+  const materials=p.labels.map((l,index)=>({layer:l.layer??10,index,label:l})).concat(projectOverlays().map((o,index)=>({layer:o.layer,index:p.labels.length+index,overlay:o})));
   for(const item of materials.sort((a,b)=>a.layer-b.layer||a.index-b.index)) {
     if(item.overlay){pngEditor.draw(ctx,item.overlay,time,editing);continue;}
     const l=item.label;
@@ -262,6 +285,7 @@ $('canvas').addEventListener('pointerdown',e=>{
   const xy=coords(e),p=photo();if(!p)return;
   const hitLayer=Math.max(-1,...p.labels.filter(l=>{const b=bounds(l);return Math.hypot(xy.x-l.point_x*W,xy.y-l.point_y*H)<42||(xy.x>=b.x&&xy.x<=b.x+b.width&&xy.y>=b.y&&xy.y<=b.y+b.height);}).map(l=>l.layer??10));
   if(pngEditor.down(xy,hitLayer)){e.preventDefault();dragging={type:'png'};$('canvas').setPointerCapture(e.pointerId);draw();return;}
+  if(hitLayer<0&&comparisonEditor.dividerDown(xy)){e.preventDefault();dragging={type:'divider'};$('canvas').setPointerCapture(e.pointerId);return;}
   // 優先選取目前標籤的定位點，避免與其他文字碰撞時難以拖曳。
   const ordered=[...p.labels].reverse().sort((a,b)=>Number(b.id===selectedLabel)-Number(a.id===selectedLabel));
   for(const l of ordered) {
@@ -274,6 +298,7 @@ $('canvas').addEventListener('pointerdown',e=>{
 $('canvas').addEventListener('pointermove',e=>{
   if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e);
   if(dragging.type==='png'){pngEditor.move(xy);markEdited(false);queueDraw();return;}
+  if(dragging.type==='divider'){photo().split=clamp(xy.x/W,.1,.9);comparisonEditor.refresh();markEdited(false);queueDraw();return;}
   const l=label();if(!l)return;
   if(dragging.type==='point') {l.point_x=clamp(xy.x/W,0,1);l.point_y=clamp(xy.y/H,0,1);}
   else {const b=bounds(l);l.x=clamp(xy.x-dragging.dx,0,W-b.width)/W;l.y=clamp(xy.y-dragging.dy,0,H-b.height)/H;}
@@ -314,20 +339,22 @@ $('duration').oninput=()=>{
   StudioTimeline.photoDuration(p,value);
   buildPhotos();markEdited();
 };
-$('fit').onchange=()=>{photo().fit=$('fit').value;editing=true;stopPlayback();fillForm();draw();markEdited();};
+$('fit').onchange=()=>{if(!cropPhoto())return;cropPhoto().fit=$('fit').value;editing=true;stopPlayback();fillForm();draw();markEdited();};
 for(const key of ['zoom','crop_x','crop_y']) {
-  $(key).oninput=()=>{photo()[key]=Number($(key).value);editing=true;stopPlayback();draw();markEdited();};
+  $(key).oninput=()=>{if(!cropPhoto())return;cropPhoto()[key]=Number($(key).value);editing=true;stopPlayback();draw();markEdited();};
   $(key).onchange=()=>persistDraft();
 }
 for(const key of labelFields) {
   $(key).oninput=()=> {
     const l=label();if(!l)return;
     l[key]=key==='line'?$(key).checked:['text','color','background','animation'].includes(key)?$(key).value:Number($(key).value);
+    if(['start','end','enter'].includes(key)&&l.comparison_side)l.auto_timing=false;
     buildLabels();editing=true;stopPlayback();info();draw();markEdited();
   };
   $(key).onchange=()=> {
     const l=label();if(!l)return;
     l[key]=key==='line'?$(key).checked:['text','color','background','animation'].includes(key)?$(key).value:Number($(key).value);
+    if(['start','end','enter'].includes(key)&&l.comparison_side)l.auto_timing=false;
     buildLabels();info();draw();markEdited();
   };
 }
@@ -338,11 +365,13 @@ $('addLabel').onclick=()=>{
   p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();markEdited();
 };
 $('deleteLabel').onclick=()=>{const p=photo();p.labels=p.labels.filter(l=>l.id!==selectedLabel);tileCache.delete(selectedLabel);selectedLabel=p.labels[0]?.id;buildLabels();fillForm();draw();markEdited();};
-$('deletePhoto').onclick=()=>{draft.deleted.push(selectedPhoto);photos=photos.filter(p=>p.id!==selectedPhoto);selectedPhoto=photos[0]?.id;selectedLabel=photo()?.labels[0]?.id;buildPhotos();buildLabels();fillForm();draw();markEdited();};
+$('deletePhoto').onclick=()=>{if(isCompare()){const i=draft.comparisons.findIndex(c=>c.id===selectedPhoto);if(i>=0)draft.comparisons.splice(i,1);}
+  else{draft.deleted.push(selectedPhoto);photos=photos.filter(p=>p.id!==selectedPhoto);}
+  selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;markEdited();buildPhotos();buildLabels();fillForm();draw();comparisonEditor.library();};
 $('applyChanges').onclick=()=>synchronize().catch(error=>status(error.message,true));
 function movePhoto(delta) {
-  const index=photos.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(next<0||next>=photos.length)return;
-  [photos[index],photos[next]]=[photos[next],photos[index]];buildPhotos();markEdited();
+  const rows=sequence(),index=rows.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(next<0||next>=rows.length)return;
+  [rows[index],rows[next]]=[rows[next],rows[index]];buildPhotos();markEdited();
 }
 $('moveLeft').onclick=()=>movePhoto(-1);$('moveRight').onclick=()=>movePhoto(1);
 function supportedMime() {
@@ -363,6 +392,7 @@ function lockEditor(locked) {
   if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!!draft.pending;}
 }
 $('browserExport').onclick=async()=>{
+  if(!sequence().length){status('請先加入照片或新增一組前後配對。',true);return;}
   if(!validProject()||draft.pending||serverBusy||preparing)return;
   const mime=supportedMime();if(!mime){status('此瀏覽器不支援 H.264 MP4，請使用 FFmpeg。',true);return;}
   preparing=true;lockEditor(true);
@@ -392,23 +422,29 @@ $('browserExport').onclick=async()=>{
   }catch(error){status(`${error.message} 可使用下方免費 FFmpeg 輸出。`,true);}
   finally{clearTimeout(timer);if(visibility)document.removeEventListener('visibilitychange',visibility);recording=false;stopPlayback();if(recorder?.state==='recording')recorder.stop();stream?.getTracks().forEach(track=>track.stop());lockEditor(false);resize();}
 };
-function photoOffset(id){let t=0;for(const p of photos){if(p.id===id)return t;t+=p.duration;}return 0;}
+function photoOffset(id){let t=0;for(const p of sequence()){if(p.id===id)return t;t+=p.duration;}return 0;}
 function seekTime(value,edit=false){if(recording||preparing||serverBusy)return;stopPlayback();time=clamp(StudioTimeline.snap(value),0,Math.max(0,total()-1/30));editing=edit;
   const p=locate(time).photo;if(p&&p.id!==selectedPhoto){selectedPhoto=p.id;selectedLabel=p.labels[0]?.id;buildPhotos();buildLabels();fillForm();}draw();persistDraft();}
 function selectMaterial(item){if(recording||preparing||serverBusy)return;stopPlayback();editing=true;
   if(item.type==='png'){pngEditor.selected=item.id;selectedLabel=null;seekTime(item.start,true);}
   else {pngEditor.selected=null;selectedPhoto=item.source;selectedLabel=item.type==='label'?item.id:photo()?.labels[0]?.id;time=item.start;}
   buildPhotos();buildLabels();fillForm();draw();persistDraft();}
-const pngEditor=new StudioPNG.PNGEditor({overlays:()=>draft.overlays,assets:()=>assetMeta,images:()=>assetCache,
+const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photos,clips:()=>draft.comparisons,current:photo,
+  active:isCompare,images:()=>imageCache,locked:()=>recording||preparing||serverBusy,status,
+  choose:id=>{if(id)selectMaterial({id,source:id,type:'comparison',start:photoOffset(id)});},
+  removeSource:id=>{draft.deleted.push(id);const i=photos.findIndex(p=>p.id===id);if(i>=0)photos.splice(i,1);},
+  refresh:()=>{editing=true;stopPlayback();fillForm();draw();},
+  change:()=>{editing=true;stopPlayback();markEdited();buildPhotos();buildLabels();fillForm();draw();}});
+const pngEditor=new StudioPNG.PNGEditor({overlays:projectOverlays,assets:()=>assetMeta,images:()=>assetCache,
   locked:()=>recording||preparing||serverBusy,total,time:()=>time,status,
   select:o=>selectMaterial(o),changed:()=>{editing=true;stopPlayback();markEdited();fillForm();draw();}});
-const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:()=>photos,overlays:()=>draft.overlays,time:()=>time,
+const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:sequence,overlays:projectOverlays,time:()=>time,
   locked:()=>recording||preparing||serverBusy,seek:seekTime,select:selectMaterial,
   selected:item=>item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
   change:persist=>{stopPlayback();editing=true;markEdited(persist);buildPhotos();fillForm();draw();}});
 $('timelineZoom').oninput=()=>{timeline.zoom=Number($('timelineZoom').value);timeline.draw();};
 function stack(front){if(recording||preparing||serverBusy)return;const selected=pngEditor.item()||label();if(!selected)return;
-  const all=[...photos.flatMap(p=>p.labels),...draft.overlays].sort((a,b)=>(a.layer??10)-(b.layer??10));
+  const all=[...sequence().flatMap(p=>p.labels),...projectOverlays()].sort((a,b)=>(a.layer??10)-(b.layer??10));
   const order=all.filter(o=>o!==selected);if(front)order.push(selected);else order.unshift(selected);
   order.forEach((o,i)=>o.layer=i);markEdited();fillForm();draw();}
 $('bringFront').onclick=()=>stack(true);$('sendBack').onclick=()=>stack(false);
