@@ -11,6 +11,7 @@ import unittest
 from PIL import Image, ImageChops, ImageStat
 from streamlit.testing.v1 import AppTest
 from studio.models import load_photo
+from studio.animation import pose
 from studio.comparison import (new_comparison,auto_pair,validate_comparisons,prepare_comparison,
                                comparison_frame,comparison_pose)
 from studio.export import export_video,ffmpeg_path
@@ -26,6 +27,25 @@ def source(name,role,color,size=(108,192)):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_plain_titles_same_position_and_exact_change_boundary(self):
+        photos=[source('b','before','red'),source('a','after','blue')]
+        c=new_comparison(*photos);before,after=c['labels']
+        self.assertEqual((before['x'],before['y']),(after['x'],after['y']))
+        self.assertEqual(before['end'],after['start'])
+        for label in c['labels']:
+            self.assertEqual((label['opacity'],label['radius'],label['line']),(0,0,False))
+            tile=label_tile(label);self.assertEqual(tile.getpixel((0,0))[3],0)
+            self.assertEqual(tile.getchannel('A').getextrema(),(0,255),'只有文字具有Alpha，背景透明')
+        for frame in range(150):
+            labels=[l for l in c['labels'] if pose(l,frame/30) is not None]
+            self.assertEqual(len(labels),1)
+            self.assertEqual(labels[0]['comparison_side'],'before' if frame/30<2 else 'after')
+        result=validate_comparisons([c],photos)[0]
+        self.assertTrue(all(l['comparison_title_version']==1 for l in result['labels']))
+        c['before_time']=0;before.update(start=0,end=0,enter=0);after.update(start=0)
+        self.assertEqual(validate_comparisons([c],photos)[0]['labels'][0]['end'],0)
+        self.assertIsNone(pose(before,0));self.assertIsNotNone(pose(after,0))
+
     def test_auto_pair_partial_reuse_and_validation(self):
         photos=[source('b1','before','red'),source('b2','before','red'),source('a','after','blue')]
         rows,left=auto_pair(photos);self.assertEqual((len(rows),left),(1,1));self.assertEqual(len(photos),3)
@@ -92,7 +112,10 @@ class ComparisonTests(unittest.TestCase):
         photos=[source('b','before','#d74433'),source('a','after','#3355cc')];clips=[]
         for mode,transition in (('switch','cut'),('switch','fade'),('switch','slide'),('split','fade'),('reveal','fade')):
             c=new_comparison(*photos);c.update(mode=mode,transition=transition,duration=2,before_time=.5,transition_time=0 if transition=='cut' else .8,show_line=True)
-            for l in c['labels']:l.update(start=0,end=2,enter=.1)
+            for l in c['labels']:
+                l.update(start=0 if mode=='split' or l['comparison_side']=='before' else .5,
+                         end=2 if mode=='split' or l['comparison_side']=='after' else .5,enter=0)
+            if mode=='split':c['labels'][1]['x']=.57
             c['labels'][1].update(text='施工後新文字',color='#ffff00',font_size=60)
             clips.append(c)
         out=BytesIO();image=Image.new('RGBA',(160,100),'#00ff00');image.paste((0,0,0,0),(50,20,110,80));image.save(out,'PNG')
@@ -119,6 +142,14 @@ class ComparisonTests(unittest.TestCase):
                     delta=ImageChops.difference(expected,image.convert('RGB'))
                     self.assertLess(max(ImageStat.Stat(delta).mean),5)
                     self.assertLess(max(ImageStat.Stat(delta.crop((380,1150,700,1550))).mean),8)
+                    # 黃字配藍底經 yuv420p 會有色度抽樣誤差；以亮度比較字形／殘影。
+                    text_delta=ImageChops.difference(expected.convert('L'),image.convert('L'))
+                    ink=ImageChops.difference(expected,base.convert('RGB')).convert('L').point(lambda value:255 if value>30 else 0)
+                    region=(60,145,650,310)
+                    self.assertLess(ImageStat.Stat(text_delta.crop(region),ink.crop(region)).mean[0],15,
+                                    f'輸出文字字形需與目前階段一致：{index=} {t=}')
+                    self.assertLess(max(abs(x-y) for x,y in zip(image.convert('RGB').getpixel((70,160)),expected.getpixel((70,160)))),8,
+                                    '文字左上內距應保留底圖，不能有背景框')
 
     def test_streamlit_template_upload_regions_session_and_real_export(self):
         app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=90).run()

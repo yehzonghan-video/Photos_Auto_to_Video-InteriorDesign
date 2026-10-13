@@ -5,14 +5,27 @@
   const crop=p=>({fit:p.fit||'contain',zoom:p.zoom??1,crop_x:p.crop_x??.5,crop_y:p.crop_y??.5});
   function titleTimes(c){for(const l of c.labels){if(!l.auto_timing||!l.comparison_side)continue;
     l.start=c.mode==='split'||l.comparison_side==='before'?0:c.before_time;
-    l.end=c.mode==='split'||l.comparison_side==='after'?c.duration:c.before_time+c.transition_time;
-    l.end=Math.max(l.start+1/30,l.end);l.enter=Math.min(l.enter,l.end-l.start);}}
+    l.end=c.mode==='split'||l.comparison_side==='after'?c.duration:c.before_time;
+    // 前停留可為0：空區間不會繪製，也不會多留一影格與施工後重疊。
+    l.end=Math.max(l.start,l.end);l.enter=Math.min(l.enter,l.end-l.start);}
+    alignTitles(c);}
+  function alignTitles(c,source){if(c.mode==='split')return;
+    const titles=c.labels.filter(l=>l.comparison_side),base=source||titles.find(l=>l.comparison_side==='before')||titles[0];
+    if(base)for(const l of titles){l.x=base.x;l.y=base.y;}}
+  function upgradeTitles(c){let changed=false;
+    for(const l of c.labels){if(!l.comparison_side||l.comparison_title_version===1)continue;
+      Object.assign(l,{opacity:0,radius:0,line:false,animation:'none',enter:0,comparison_title_version:1});changed=true;}
+    if(changed)titleTimes(c);return changed;}
+  function visibleTitle(c,l,t,view='combined'){
+    if(!l.comparison_side)return true;
+    if(view!=='combined')return l.comparison_side===view;
+    return c.mode==='split'||l.comparison_side===(t<c.before_time?'before':'after');}
   function make(before,after,id){const c={id:id(),type:'comparison',before_id:before.id,after_id:after.id,name:`${before.name||'施工前'} → ${after.name||'施工後'}`.slice(0,80),
     mode:'switch',transition:'fade',direction:'ltr',duration:5,before_time:2,transition_time:1,split:.5,show_line:true,
     before_crop:crop(before),after_crop:crop(after),labels:[]};
-    for(const [side,text,x] of [['before','施工前',.06],['after','施工後',.57]])c.labels.push({id:id(),text,x,y:.08,
-      point_x:.5,point_y:.5,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:false,
-      animation:'fade',start:0,end:5,enter:.3,layer:10,comparison_side:side,auto_timing:true});
+    for(const [side,text] of [['before','施工前'],['after','施工後']])c.labels.push({id:id(),text,x:.06,y:.08,
+      point_x:.5,point_y:.5,font_size:46,color:'#ffffff',background:'#222822',opacity:0,radius:0,line:false,
+      animation:'none',start:0,end:5,enter:0,layer:10,comparison_side:side,auto_timing:true,comparison_title_version:1});
     titleTimes(c);return c;}
   function resize(c,value){const length=clamp(snap(value),1,20),ratio=length/c.duration;
     c.before_time*=ratio;c.transition_time*=ratio;c.duration=length;
@@ -42,5 +55,5 @@
     box=Photo.layout(w,h,1080-split,1920,c.after_crop),px=old.sx+(x*1080-old.dx)/old.dw*old.sw,py=old.sy+(y*1920-old.dy)/old.dh*old.sh;
     const tx=split+box.dx+(px-box.sx)/box.sw*box.dw,ty=box.dy+(py-box.sy)/box.sh*box.dh;
     return {x:clamp(tx,split,1080)/1080,y:clamp(ty,0,1920)/1920,review:px<box.sx||px>box.sx+box.sw||py<box.sy||py>box.sy+box.sh};}
-  const api={make,crop,resize,titleTimes,pair,pose,mapPoint,validate};if(typeof module!=='undefined')module.exports=api;else root.StudioComparison=api;
+  const api={make,crop,resize,titleTimes,alignTitles,upgradeTitles,visibleTitle,pair,pose,mapPoint,validate};if(typeof module!=='undefined')module.exports=api;else root.StudioComparison=api;
 })(typeof window!=='undefined'?window:this);

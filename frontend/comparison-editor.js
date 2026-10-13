@@ -69,6 +69,9 @@
       if(next.mode==='switch'&&next.transition==='cut'){next.duration-=next.transition_time;next.transition_time=0;}
       else if(next.transition_time<1/30&&(next.mode==='reveal'||(next.mode==='switch'&&next.transition!=='cut'))){next.transition_time=1;next.duration+=1;}
       const error=StudioComparison.validate([next],h.photos());if(error){h.status(error,true);return;}
+      // 分割模式同時顯示兩側文字；切回順序播放則共用施工前文字的位置。
+      if(key==='mode'&&next.mode==='split'&&c.mode!=='split'){
+        const title=next.labels.find(l=>l.comparison_side==='after');if(title)title.x=.57;}
       StudioComparison.resize(next,next.duration);Object.assign(c,next);h.change();this.refresh();if(['before_id','after_id'].includes(key))this.library();}
     importLabels(){const h=this.hooks,c=h.current();if(!c||h.locked())return;const p=h.photos().find(p=>p.id===c.after_id);let count=0;
       for(const original of p?.labels||[]){if(c.labels.length>=12)break;if(c.labels.some(l=>l.origin_label_id===original.id))continue;

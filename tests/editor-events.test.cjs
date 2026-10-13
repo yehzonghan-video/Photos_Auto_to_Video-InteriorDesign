@@ -45,6 +45,31 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,get draws(){return draws;}};
 }
+test('前後標題拖曳共用位置、選取自動跳至對應時間、舊草稿升級且rerun不送Python',async()=>{
+  const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
+  const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));
+  c.labels[0].text='原始空間';c.labels[0].x=.2;
+  for(const l of c.labels){delete l.comparison_title_version;l.opacity=.88;l.radius=18;}
+  c.labels[1].x=.57;c.labels[0].end=3;
+  const project={photos:rows,comparisons:[c],template_id:'compare'};await env.receive({project});
+  const get=id=>env.elements.get(id),clip=()=>vm.runInContext('photo()',env.context);
+  assert.equal(clip().labels[0].text,'原始空間');assert.equal(clip().labels[0].opacity,0);
+  assert.equal(clip().labels[1].x,.2);assert.equal(clip().labels[0].end,2);
+  get('labels').children[1].onclick();assert.equal(vm.runInContext('time',env.context),2);
+  assert.equal(vm.runInContext('visibleEditLabel(photo(),photo().labels[0])',env.context),false);
+  const b=vm.runInContext('bounds(label())',env.context);
+  get('canvas').dispatch('pointerdown',{clientX:b.x+30,clientY:b.y+30});
+  for(let i=0;i<300;i++)get('canvas').dispatch('pointermove',{clientX:b.x+30+i/10,clientY:b.y+50});
+  get('canvas').dispatch('pointerup');
+  assert.deepEqual([clip().labels[0].x,clip().labels[0].y],[clip().labels[1].x,clip().labels[1].y]);
+  assert.ok(clip().labels[0].x>.2);assert.equal(env.changes().length,0);
+  await env.receive({project,revision:2});assert.ok(clip().labels[0].x>.2,'後端舊位置不得蓋掉拖曳草稿');
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.ok(vm.runInContext('photo().labels[0].x>.2',rebuilt.context));assert.equal(rebuilt.changes().length,0);
+  const promise=rebuilt.elements.get('applyChanges').onclick(),sent=rebuilt.changes()[0].value;
+  assert.equal(sent.comparisons[0].labels[0].opacity,0);assert.equal(sent.comparisons[0].labels[0].comparison_title_version,1);
+  await rebuilt.receive({project:{...project,comparisons:sent.comparisons},revision:3,response:{nonce:sent.nonce,ok:true}});await promise;
+});
 test('真正事件處理器：連續新增10個、500次移動、修改、刪除與切換照片均不送 Python',async()=>{
   const env=environment();await env.receive();const get=id=>env.elements.get(id);
   for(let i=0;i<10;i++)get('addLabel').onclick();

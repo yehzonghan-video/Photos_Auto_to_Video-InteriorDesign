@@ -44,7 +44,8 @@ def validate_label(raw, duration):
     start = number(raw.get("start", 0), 0, duration)
     end = number(raw.get("end", duration), 0, duration)
     enter = number(raw.get("enter", .6), 0, 3)
-    if end <= start or enter > end - start:
+    empty_before = raw.get("comparison_side") == "before" and bool(raw.get("auto_timing")) and start == end == 0 and enter == 0
+    if (end <= start and not empty_before) or enter > end - start:
         raise ValueError("消失時間必須晚於出現時間，進場時長不能超過標籤顯示時間。")
     result = dict(id=str(raw["id"])[:64], text=text,
                 **{key: number(raw[key], 0, 1) for key in ("x", "y", "point_x", "point_y")},
@@ -64,6 +65,8 @@ def validate_label(raw, duration):
         result.update(source="gemini", needs_review=bool(raw.get("needs_review", True)))
     if raw.get("comparison_side") in ("before", "after"):
         result.update(comparison_side=raw["comparison_side"], auto_timing=bool(raw.get("auto_timing",False)))
+        if raw.get("comparison_title_version") == 1:
+            result["comparison_title_version"] = 1
     if isinstance(raw.get("origin_label_id"),str):
         result["origin_label_id"]=raw["origin_label_id"][:64]
     return result

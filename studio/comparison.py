@@ -21,10 +21,10 @@ def new_comparison(before, after):
         name=(before.name+" → "+after.name)[:80], mode="switch", transition="fade", direction="ltr", duration=5.,
         before_time=2., transition_time=1., split=.5, show_line=True,
         before_crop=crop_settings(before.metadata()), after_crop=crop_settings(after.metadata()), labels=[])
-    for side, text, x, start, end in (("before", "施工前", .06, 0, 3), ("after", "施工後", .57, 2, 5)):
+    for side, text, start, end in (("before", "施工前", 0, 2), ("after", "施工後", 2, 5)):
         label=new_label(5)
-        label.update(text=text,x=x,y=.08,line=False,animation="fade",enter=.3,start=start,end=end,
-                     comparison_side=side,auto_timing=True)
+        label.update(text=text,x=.06,y=.08,line=False,opacity=0,radius=0,animation="none",enter=0,start=start,end=end,
+                     comparison_side=side,auto_timing=True,comparison_title_version=1)
         clip["labels"].append(label)
     return clip
 

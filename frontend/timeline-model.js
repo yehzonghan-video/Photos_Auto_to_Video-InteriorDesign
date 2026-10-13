@@ -7,7 +7,7 @@
     let offset=0;const result=[];
     for(const p of photos){
       result.push({id:p.id,type:p.type==='comparison'?'comparison':'photo',source:p.id,start:offset,duration:p.duration,layer:0,name:p.name});
-      for(const l of p.labels)result.push({id:l.id,type:'label',source:p.id,start:offset+l.start,
+      for(const l of p.labels)if(l.end>l.start)result.push({id:l.id,type:'label',source:p.id,start:offset+l.start,
         duration:l.end-l.start,layer:l.layer??10,name:l.text});
       offset+=p.duration;
     }
