@@ -9,7 +9,8 @@ from unittest.mock import patch, MagicMock
 from PIL import Image
 from pydantic import ValidationError
 from studio.ai import (AIError, Analysis, CallBudget, DEFAULT_MODEL, analyze_batch,
-    analyze_photo, content_hash, image_part, queue_import, safe_error, settings)
+    analyze_photo, content_hash, image_part, queue_import, safe_error, settings,
+    auto_import, unfinished_photos, MODEL_CHOICES)
 from studio.models import load_photo, new_label, validate_label
 from studio.sync import consume_editor_event
 
@@ -61,7 +62,7 @@ class AITests(unittest.TestCase):
         self.assertEqual(len(calls),2)
         analyze_batch([first],'mock',DEFAULT_MODEL,state,force=True,analyzer=mock,budget=CallBudget())
         self.assertEqual(len(calls),3)
-        with self.assertRaises(AIError):analyze_batch([first]*4,'mock',DEFAULT_MODEL,state)
+        with self.assertRaises(AIError):analyze_batch([first]*13,'mock',DEFAULT_MODEL,state)
 
     def test_quota_limits_and_safe_errors(self):
         budget=CallBudget()
@@ -97,6 +98,73 @@ class AITests(unittest.TestCase):
         photo=load_photo('旋轉.jpg',out.getvalue());part=image_part(photo)
         with Image.open(BytesIO(part.inline_data.data)) as corrected:self.assertEqual(corrected.size,(800,1600))
         self.assertEqual(photo.original,out.getvalue())
+
+    def test_twelve_photos_sequential_wait_budget_and_auto_import(self):
+        photos=[sample() for _ in range(12)];clock=[100.];waits=[];messages=[];calls=[]
+        real_budget=CallBudget()
+        class Budget:
+            def reserve(self,key):real_budget.reserve(key,clock[0])
+        def sleep(seconds):clock[0]+=seconds;waits.append(seconds)
+        item={**raw_item(),'box_2d':[.5,.1,.95,.9]}
+        state={'photos':photos}
+        def analyzer(photo,key,model):calls.append(photo.id);return [item]
+        reports=analyze_batch(photos,'mock',DEFAULT_MODEL,state,force=True,analyzer=analyzer,
+            budget=Budget(),sleeper=sleep,progress=lambda value,msg:messages.append((value,msg)),
+            on_result=lambda photo,result:auto_import(state,photo,result))
+        self.assertEqual(len(calls),12);self.assertTrue(all(r['ok'] for r in reports))
+        self.assertEqual(len(state['ai_imports']),12);self.assertEqual(sum(waits),120)
+        self.assertTrue(any('秒後繼續' in msg for _,msg in messages))
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[])
+        analyze_batch(photos,'mock',DEFAULT_MODEL,state,analyzer=analyzer,budget=Budget(),sleeper=sleep,
+            on_result=lambda photo,result:auto_import(state,photo,result))
+        self.assertEqual(len(calls),12);self.assertEqual(len(state['ai_imports']),12)
+
+    def test_transient_retry_once_then_repair_only_failed_and_model_hash_audit(self):
+        photos=[sample(),sample()];photos[1].original+=b'different';state={};counts={}
+        def analyzer(photo,key,model):
+            counts[photo.id]=counts.get(photo.id,0)+1
+            if photo is photos[0]:raise AIError('暫時連線失敗',retryable=True,retry_after=2)
+            return []
+        report=analyze_batch(photos,'mock',DEFAULT_MODEL,state,analyzer=analyzer,budget=CallBudget(),sleeper=lambda seconds:None)
+        self.assertEqual([r['ok'] for r in report],[False,True]);self.assertEqual(counts[photos[0].id],2)
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[0]])
+        repair=analyze_batch([photos[0]],'mock',DEFAULT_MODEL,state,analyzer=lambda *args:[],budget=CallBudget())
+        self.assertTrue(repair[0]['ok']);self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[])
+        self.assertEqual(unfinished_photos(photos,'gemini-3.1-flash-lite',state),photos)
+        photos[0].original+=b'replaced'
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[0]])
+
+    def test_quota_retry_bounded_auth_no_retry_and_remainder_pending(self):
+        photos=[sample() for _ in range(3)];state={};calls=[]
+        def quota(photo,key,model):calls.append(photo.id);raise AIError('429',code=429,retryable=True,retry_after=60)
+        reports=analyze_batch(photos,'mock',DEFAULT_MODEL,state,analyzer=quota,budget=CallBudget(),sleeper=lambda seconds:None)
+        self.assertEqual(len(calls),2);self.assertFalse(any(r['ok'] for r in reports))
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),photos)
+        calls.clear()
+        def auth(photo,key,model):calls.append(photo.id);raise AIError('403',code=403)
+        analyze_batch(photos,'mock',DEFAULT_MODEL,{},analyzer=auth,budget=CallBudget())
+        self.assertEqual(len(calls),1)
+        self.assertIn('gemini-3.1-flash-lite',MODEL_CHOICES)
+
+    def test_interrupt_keeps_completed_import_and_missing_audit(self):
+        photos=[sample(),sample()];state={};item={**raw_item(),'box_2d':[.5,.1,.95,.9]}
+        class Interrupted(BaseException):pass
+        def progress(value,message):
+            if value==.5:raise Interrupted()
+        with self.assertRaises(Interrupted):
+            analyze_batch(photos,'mock',DEFAULT_MODEL,state,force=True,analyzer=lambda *a:[item],
+                budget=CallBudget(),progress=progress,on_result=lambda p,r:auto_import(state,p,r))
+        self.assertEqual(len(state['ai_imports']),1)
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[1]])
+
+    def test_partial_repair_does_not_hide_older_failed_force_analysis(self):
+        photos=[sample(),sample()];state={}
+        analyze_batch(photos,'mock',DEFAULT_MODEL,state,analyzer=lambda *args:[],budget=CallBudget())
+        def failed(*args):raise AIError('失敗')
+        analyze_batch(photos,'mock',DEFAULT_MODEL,state,force=True,analyzer=failed,budget=CallBudget())
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),photos)
+        analyze_batch([photos[0]],'mock',DEFAULT_MODEL,state,force=True,analyzer=lambda *args:[],budget=CallBudget())
+        self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[1]])
 
 
 if __name__=='__main__':unittest.main()

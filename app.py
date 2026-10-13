@@ -27,7 +27,8 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 revision=0, output_seconds=None, notice=None, notice_error=False,
                 editor_session=uuid.uuid4().hex, editor_seen=[], editor_response=None,
                 editor_assets={}, pending_export=None, editor_busy=False,
-                ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0, ai_removed=[])
+                ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
+                ai_queue=[], ai_delivered={}, ai_pending={})
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -67,7 +68,7 @@ with st.sidebar:
     st.divider()
     config = template_config()
     st.selectbox("影片模板", [config["name"]])
-    st.caption("AI 建議需確認後採用；其他模板、音樂與 LOGO 將在後續階段加入。")
+    st.caption("AI 分析後直接加入標籤，可自由刪改；其他模板、音樂與 LOGO 將在後續階段加入。")
     with st.expander("執行環境檢查", expanded=False):
         try:
             info = capabilities()
@@ -89,7 +90,8 @@ with st.sidebar:
         st.session_state.editor_response = None
         st.session_state.pending_export = None
         st.session_state.editor_busy = False
-        for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0, ai_removed=[]).items():
+        for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
+                               ai_queue=[], ai_delivered={}, ai_pending={}).items():
             st.session_state[key] = value
         st.session_state.pop("ai_chosen", None)
         st.session_state.pop("ai_consent", None)

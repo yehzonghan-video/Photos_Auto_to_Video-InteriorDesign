@@ -10,6 +10,17 @@ test('橫圖完整留黑換算物件與文字座標',()=>{
   assert.equal(l.point_x,.5);assert.equal(l.point_y,(690+405)/1920);
   assert.equal(l.x,.1);assert.equal(l.y,(690+324)/1920);
 });
+test('自動套用在剩餘容量內加入，保留全部人工標籤，超出數量明確顯示',()=>{
+  const draft=new DraftState();draft.rows=[photo()];
+  draft.rows[0].labels=Array.from({length:10},(_,i)=>({id:`manual-${i}`,text:`人工 ${i}`}));
+  const images=new Map([['p',{naturalWidth:2000,naturalHeight:1000}]]);
+  const batch={id:'auto',photo_id:'p',content_hash:'hash',automatic:true,
+    items:Array.from({length:4},(_,i)=>({...item,ai_item_id:`auto-${i}`}))};let i=0;
+  const result=AI.importBatches(draft,[batch],images,layout,()=> `id-${i++}`);
+  assert.equal(result.added,2);assert.equal(draft.rows[0].labels.length,12);
+  assert.equal(draft.rows[0].labels[0].text,'人工 0');assert.match(result.messages[0],/2 個因12個標籤上限/);
+  assert.equal(AI.importBatches(draft,[batch],images,layout,()=> 'id').added,0);
+});
 test('使用最新裁切縮放，裁切外略過、部分可見修正定位點並待確認',()=>{
   const p={...photo(),fit:'cover',zoom:2,crop_x:1,crop_y:.5};
   const hidden={...item,box_2d:[0,0,.1,.1],anchor_x:.05,anchor_y:.05};

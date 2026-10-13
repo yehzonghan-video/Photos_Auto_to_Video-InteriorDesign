@@ -30,9 +30,11 @@
       const labels=batch.items.filter(item=>!existing.has(item.ai_item_id)).map(item=> {
         const label=convert(item,photo,image,layout,uuid);if(!label)outside++;return label;
       }).filter(Boolean);
-      if(photo.labels.length+labels.length>12){messages.push(`${photo.name}：此批超出12個標籤上限，未匯入；請減少選取後重送。`);continue;}
-      photo.labels.push(...labels);added+=labels.length;
-      messages.push(`${photo.name}：新增 ${labels.length} 個 AI 標籤${outside?`；${outside} 個物件在裁切外，未匯入`:''}。`);
+      const room=Math.max(0,12-photo.labels.length);
+      if(labels.length>room&&!batch.automatic){messages.push(`${photo.name}：此批超出12個標籤上限，未匯入；請減少選取後重送。`);continue;}
+      const accepted=labels.slice(0,room),overflow=labels.length-accepted.length;
+      photo.labels.push(...accepted);added+=accepted.length;
+      messages.push(`${photo.name}：新增 ${accepted.length} 個 AI 標籤${outside?`；${outside} 個物件在裁切外，未匯入`:''}${overflow?`；${overflow} 個因12個標籤上限未加入，請刪除不需要的標籤後重新分析`:''}。`);
     }
     return {added,messages};
   }
