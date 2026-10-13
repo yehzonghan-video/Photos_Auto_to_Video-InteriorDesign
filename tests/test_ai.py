@@ -130,7 +130,7 @@ class AITests(unittest.TestCase):
         self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[0]])
         repair=analyze_batch([photos[0]],'mock',DEFAULT_MODEL,state,analyzer=lambda *args:[],budget=CallBudget())
         self.assertTrue(repair[0]['ok']);self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[])
-        self.assertEqual(unfinished_photos(photos,'gemini-3.1-flash-lite',state),photos)
+        self.assertEqual(unfinished_photos(photos,'gemini-3.8-flash',state),photos)
         photos[0].original+=b'replaced'
         self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[0]])
 

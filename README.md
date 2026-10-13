@@ -47,7 +47,7 @@ py -3.12 -m venv .venv
 
 ```toml
 GEMINI_API_KEY = "YOUR_API_KEY_HERE"
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 ```
 
 將佔位文字換成自己的金鑰。真實 `secrets.toml` 已被 `.gitignore` 排除，請勿提交至 GitHub；金鑰只由 Python 伺服器使用，不傳給標籤編輯器。修改設定後重啟應用程式。
@@ -56,14 +56,14 @@ GEMINI_MODEL = "gemini-3.8-flash"
 
 ### 模型與免費方案
 
-預設模型為 **`gemini-3.8-flash`**。2026-10-12 實測中，原先優先測試的 `gemini-2.5-flash` 雖出現在模型清單，實際分析卻回傳 404，指出不再向新使用者開放；3.8 Flash 的照片分析已成功。
+預設模型為 **`gemini-3.1-flash-lite`**，選單標示 **「Gemini 3.1 Flash-Lite (建議)」**，已完成真實 API 與瀏覽器五張照片測試。2026-10-12 曾成功測試 3.8 Flash，但後續新金鑰測試遇到連線／逾時；2.5 Flash 在先前新帳號則回傳 404。
 
-介面可選擇下列模型，Secrets 的 `GEMINI_MODEL` 決定初始選擇；切換模型不會覆蓋既有標籤，快取依模型分開。
+介面可選擇下列模型。新工作階段初始選擇建議的 3.1 Flash-Lite，即使既有 Secrets 仍指定 3.8 Flash；使用者自行切換後，一般 rerun 會保留選擇。切換模型不會覆蓋既有標籤，快取依模型分開。
 
 | 模型 | 可用性驗證 |
 | --- | --- |
-| `gemini-3.8-flash` | 預設；已完成真實照片 API 測試 |
-| `gemini-3.1-flash-lite` | 已完成真實 API 與瀏覽器五張排隊／自動套用測試 |
+| `gemini-3.1-flash-lite` | 建議／預設；已完成真實 API 與瀏覽器五張排隊／自動套用測試 |
+| `gemini-3.8-flash` | 曾完成真實照片 API 測試；後續新金鑰測試逾時 |
 | `gemini-3.6-flash` | 官方列有免費層、測試金鑰模型清單有列出；未逐一測試生成 |
 | `gemini-3.5-flash-lite` | 官方列有免費層、測試金鑰模型清單有列出；未逐一測試生成 |
 | `gemini-2.5-flash` | 部分舊帳號可能可用；先前新帳號實際分析回傳 404 |
@@ -150,7 +150,7 @@ node --test tests/*.test.cjs
 1. 將原始碼推送到自己的 GitHub repository，**不要提交 `.venv`、`.tmp`、`.tools`、`.streamlit/secrets.toml` 或使用者素材**。
 2. 在 Community Cloud 建立 app，入口 `app.py`，Python 選 3.12。
 3. Cloud 讀取 `requirements.txt`；`packages.txt` 安裝 `ffmpeg`、`fonts-noto-cjk`。應用程式的環境檢查會確認 libx264 與中文字型。
-4. 手動流程不用 Secrets。啟用 AI 時，把 `.streamlit/secrets.toml.example` 的 Gemini 設定放到 Cloud 的 Secrets，填入未啟用帳務的免費專案金鑰。預設 `gemini-3.8-flash`：本次真實 API 確認 2.5 Flash 不向新使用者開放；仍可自行設定模型，程式不自動切換。真實金鑰不得放在 repository 或前端。
+4. 手動流程不用 Secrets。啟用 AI 時，把 `.streamlit/secrets.toml.example` 的 Gemini 設定放到 Cloud 的 Secrets，填入未啟用帳務的免費專案金鑰。介面預設 `gemini-3.1-flash-lite`，標示「(建議)」，仍可自行切換其他模型；程式不在失敗後自動換型號。真實金鑰不得放在 repository 或前端。
 5. 部署後先跑短片，再跑 20 秒 Full HD。**本專案本機成功不代表已公開部署，也不保證免費 Cloud 的效能**；能力不足時介面顯示錯誤，可改用瀏覽器輸出或本機 Streamlit。
 
 Cloud 安裝依據：[官方依賴文件](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies)。免費 Cloud 公開 app 可能被其他人使用，目前有張數、時間、檔案大小、程序同時輸出及 AI 工作階段／程序共用限流；程序重新啟動會重置共用上限。

@@ -7,7 +7,7 @@
 
 > This model models/gemini-2.5-flash is no longer available to new users.
 
-因此預設改為 `gemini-3.8-flash`，已真實測試結構化照片分析成功。既有可用帳號可自行設定 `gemini-2.5-flash`；程式不在錯誤後自動更換模型。
+當時預設改為 `gemini-3.8-flash`，已真實測試結構化照片分析成功。2026-10-13 再依使用者要求，將預設改為新金鑰與瀏覽器實測成功的 `gemini-3.1-flash-lite`，選單標示「(建議)」。既有可用帳號可自行選擇其他模型；程式不在錯誤後自動更換模型。
 2026-10-13 更新：介面可選 `gemini-3.8-flash`、`gemini-3.6-flash`、`gemini-3.5-flash-lite`、`gemini-3.1-flash-lite`、`gemini-2.5-flash`、`gemini-2.5-flash-lite`。這些型號的 Standard 免費層已查證；3.8 Flash／3.1 Flash-Lite 已完成真實生成測試，其他型號不保證所有帳號都能使用。新增型號前需更新免費模型清單並重新驗證。
 
 - [Google 官方價格](https://ai.google.dev/gemini-api/docs/pricing)：3.8 Flash Standard 有免費輸入／輸出層。程式使用一般 generateContent，不使用付費 Batch API、Grounding、Files 或影片 API。
@@ -24,10 +24,12 @@
 
 ```toml
 GEMINI_API_KEY = "YOUR_API_KEY_HERE"
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 ```
 
 Community Cloud：入口仍為 `app.py`，在 app 的 Settings → Secrets 貼上上述 TOML。金鑰不放入 GitHub、元件參數或任何前端程式。
+
+介面新工作階段固定初始選擇建議模型，即使既有 Secrets 的型號仍是3.8 Flash；使用者改選後，一般 rerun 會保留該選擇。
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt

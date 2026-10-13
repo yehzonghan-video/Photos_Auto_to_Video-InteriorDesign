@@ -13,13 +13,13 @@ def ai_panel(photos, state):
         except FileNotFoundError:
             secret_values = {}
         try:
-            key, configured_model = settings(secret_values)
+            key, _ = settings(secret_values)
             ready = True
         except AIError as error:
-            key, configured_model, ready = "", DEFAULT_MODEL, False
+            key, ready = "", False
             st.info(str(error))
         model = st.selectbox("AI 辨識模型", list(MODEL_CHOICES),
-            index=list(MODEL_CHOICES).index(configured_model),
+            index=list(MODEL_CHOICES).index(DEFAULT_MODEL),
             format_func=lambda value: MODEL_CHOICES[value], key="ai_model")
         locked = state.get("editor_busy", False) or state.get("pending_export") is not None
         st.caption("可選多張照片，收到一張回覆後才分析下一張；每工作階段最多20次呼叫。模型支援免費層，實際額度與可用性依帳號而異，不會自動換模型。")

@@ -15,13 +15,13 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from .models import MAX_PHOTOS
 
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 # 2026-10-13 官方 Standard 免費層；新增模型前需重新查證價格及 JSON 支援。
 MODEL_CHOICES = {
-    DEFAULT_MODEL: "Gemini 3.8 Flash（預設）",
+    DEFAULT_MODEL: "Gemini 3.1 Flash-Lite (建議)",
+    "gemini-3.8-flash": "Gemini 3.8 Flash",
     "gemini-3.6-flash": "Gemini 3.6 Flash",
     "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
-    "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
     "gemini-2.5-flash": "Gemini 2.5 Flash（部分舊帳號）",
     "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite（視帳號可用性）",
 }
