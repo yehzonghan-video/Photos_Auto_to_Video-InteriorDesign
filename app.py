@@ -11,6 +11,7 @@ from studio.models import MAX_PHOTOS, MAX_SESSION_BYTES, load_photo
 from studio.sync import consume_editor_event
 from studio.rendering import font_path, template_config
 from studio.ai_ui import ai_panel
+from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 st.markdown("""<style>
@@ -28,14 +29,16 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 editor_session=uuid.uuid4().hex, editor_seen=[], editor_response=None,
                 editor_assets={}, pending_export=None, editor_busy=False,
                 ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
-                ai_queue=[], ai_delivered={}, ai_pending={})
+                ai_queue=[], ai_delivered={}, ai_pending={}, overlays=[], png_epoch=0)
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+if "overlay_assets" not in st.session_state:
+    st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
 
 # 升級元件協定時保留照片，只清除舊版素材 payload 與舊 widget 事件。
-if st.session_state.get("editor_protocol") != 2:
-    st.session_state.editor_protocol = 2
+if st.session_state.get("editor_protocol") != 3:
+    st.session_state.editor_protocol = 3
     st.session_state.project_payload = None
     st.session_state.editor_assets = {}
     st.session_state.editor_response = None
@@ -63,12 +66,12 @@ def check_capacity(photos):
 
 with st.sidebar:
     st.markdown("### 案例影片工作室")
-    st.caption("第二階段 · AI 裝修項目辨識")
+    st.caption("第三階段 · 時間軸與 PNG 圖層")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
     config = template_config()
     st.selectbox("影片模板", [config["name"]])
-    st.caption("AI 分析後直接加入標籤，可自由刪改；其他模板、音樂與 LOGO 將在後續階段加入。")
+    st.caption("AI 標籤與 PNG 圖層可自由編輯；其他模板、音樂與品牌結尾將在後續階段加入。")
     with st.expander("執行環境檢查", expanded=False):
         try:
             info = capabilities()
@@ -90,6 +93,9 @@ with st.sidebar:
         st.session_state.editor_response = None
         st.session_state.pending_export = None
         st.session_state.editor_busy = False
+        st.session_state.overlays = []
+        st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
+        st.session_state.png_epoch += 1
         for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
                                ai_queue=[], ai_delivered={}, ai_pending={}).items():
             st.session_state[key] = value
@@ -169,12 +175,34 @@ with st.expander("替換單張照片", expanded=False):
         except (ValueError, OSError) as exc:
             st.error(str(exc))
 
-st.subheader("02　編輯畫面與裝修標籤")
+with st.expander("上傳 PNG 素材（透明 LOGO、箭頭、價格框）", expanded=False):
+    st.caption("素材僅保存在目前工作階段；單張最多5 MB／800萬畫素。上傳後到編輯器的 PNG 素材庫點選加入。請使用有權使用的素材。")
+    png_files = st.file_uploader("選擇 PNG 素材", type=["png"], accept_multiple_files=True,
+                                 max_upload_size=5, key=f"png_uploads_{st.session_state.png_epoch}")
+    if st.button("加入 PNG 素材庫", disabled=not png_files):
+        try:
+            proposed = dict(st.session_state.overlay_assets)
+            for file in png_files:
+                asset = load_asset(file.name, file.getvalue())
+                proposed[asset.id] = asset
+            if len(proposed) > MAX_ASSETS or sum(len(asset.original) for asset in proposed.values()) > 40*1024*1024:
+                raise ValueError("素材庫最多24個 PNG、總容量40 MB，請減少素材或縮小圖片。")
+            st.session_state.overlay_assets = proposed
+            st.session_state.png_epoch += 1
+            invalidate()
+            st.rerun()
+        except (ValueError, OSError) as exc:
+            st.error(str(exc))
+    for warning in st.session_state.get("asset_warnings", []):
+        st.warning(warning)
+
+st.subheader("02　編輯畫面、PNG 與時間軸")
 ai_panel(photos, st.session_state)
 st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成後按「套用變更」；輸出前會自動套用最新設定。")
 try:
     if st.session_state.project_payload is None:
-        st.session_state.project_payload = payload(photos, st.session_state.editor_assets)
+        st.session_state.project_payload = payload(photos, st.session_state.editor_assets,
+                                                   st.session_state.overlay_assets, st.session_state.overlays)
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,
@@ -208,7 +236,8 @@ if job:
     bar = st.progress(0., text="正在準備影片素材…")
     try:
         data = export_video(photos, job["width"], job["width"]*16//9,
-                            progress=lambda value, message: bar.progress(value, text=message))
+                            progress=lambda value, message: bar.progress(value, text=message),
+                            overlays=st.session_state.overlays, assets=st.session_state.overlay_assets)
         st.session_state.output = data
         st.session_state.output_seconds = round(time.monotonic() - started, 1)
     except (RuntimeError, ValueError, OSError, TimeoutError) as exc:

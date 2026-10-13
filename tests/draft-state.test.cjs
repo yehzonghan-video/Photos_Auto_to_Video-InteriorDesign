@@ -3,6 +3,15 @@ const test=require('node:test');
 const {DraftState}=require('../frontend/draft-state.js');
 const remote=()=>[{id:'p1',name:'first',image:'image1',tiles:{},labels:[],duration:4},{id:'p2',name:'second',image:'image2',tiles:{},labels:[],duration:4}];
 function initialized(){const state=new DraftState();state.receive(remote(),'session',1);return state;}
+test('PNG 草稿跨重建保存，同步期間的新旋轉不被舊回覆覆蓋',()=>{
+  const state=initialized();state.overlays=[{id:'png',source:'asset',rotation:0,start:1,duration:3}];state.touch(state.rows);
+  const snapshot=state.snapshot('png-nonce');state.overlays[0].rotation=45;state.touch(state.rows);
+  state.receive(remote(),'session',2,{nonce:'png-nonce',ok:true},snapshot.overlays);
+  assert.equal(state.overlays[0].rotation,45);assert.equal(state.dirty,true);
+  const restored=new DraftState();restored.restore(state.persisted(),'session');restored.receive(remote(),'session',2,null,[]);
+  assert.equal(restored.overlays[0].rotation,45);
+  assert.equal(JSON.stringify(restored.persisted()).includes('image1'),false);
+});
 test('十個標籤、跨照片切換及元件重建保留草稿；草稿不含照片內容',()=>{
   const state=initialized();for(let i=0;i<10;i++){state.rows[0].labels.push({id:`l${i}`,text:`標籤${i}`,x:i/20});state.touch(state.rows);}
   state.rows[1].labels.push({id:'second',text:'另一張'});state.touch(state.rows);

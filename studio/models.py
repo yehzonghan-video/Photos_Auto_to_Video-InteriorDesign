@@ -52,7 +52,8 @@ def validate_label(raw, duration):
                 font_size=number(raw["font_size"], 24, 96), color=color(raw["color"]),
                 background=color(raw["background"]), opacity=number(raw["opacity"], 0, 1),
                 radius=number(raw["radius"], 0, 60), line=bool(raw["line"]),
-                animation=animation, start=start, end=end, enter=enter)
+                animation=animation, start=start, end=end, enter=enter,
+                layer=int(number(raw.get("layer", 10), 0, 1000)))
     if raw.get("source") == "gemini":
         for key, limit in (("description", 200), ("category", 30), ("ai_item_id", 180), ("confidence_level", 1)):
             value = raw.get(key, "")

@@ -33,7 +33,7 @@ def capabilities():
     return dict(binary=binary, encoder="libx264", font="由系統中文字型產生共用標籤素材")
 
 
-def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout=300):
+def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout=300, overlays=None, assets=None):
     if not photos:
         raise ValueError("請先上傳照片。")
     if (width, height) not in ((360, 640), (720, 1280), (1080, 1920)) or fps != 30:
@@ -42,12 +42,15 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     if duration > MAX_TOTAL_SECONDS:
         raise ValueError("影片最長 120 秒。")
     binary = capabilities()["binary"]
+    from .overlays import prepare_overlays, validate_overlays
+    validated = validate_overlays(overlays or [], assets or {}, duration)
     if not RENDER_LOCK.acquire(blocking=False):
         raise RuntimeError("目前有另一支影片正在輸出，請稍候再試；可使用瀏覽器輸出。")
     process = None
     stop = threading.Event()
     started = time.monotonic()
     try:
+        prepared = prepare_overlays(validated, assets or {})
         # 只有壓縮影片與 FFmpeg 診斷使用暫存檔，所有路徑都在 finally 清除。
         with tempfile.TemporaryDirectory(prefix="interior-video-") as folder:
             target = Path(folder) / "case.mp4"
@@ -72,7 +75,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         tiles = [label_tile(label) for label in photo.labels]
                         count = round(photo.duration * fps)
                         for index in range(count):
-                            frame = render_frame(base, photo.labels, tiles, index / fps)
+                            frame = render_frame(base, photo.labels, tiles, index / fps, prepared, done / fps)
                             if (width, height) != frame.size:
                                 from PIL import Image
                                 frame = frame.resize((width, height), Image.Resampling.LANCZOS)

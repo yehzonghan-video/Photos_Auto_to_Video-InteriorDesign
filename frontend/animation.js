@@ -13,6 +13,16 @@
     if (!['none', 'fade', 'scale'].includes(label.animation)) alpha = ease;
     return {x, y, scale, alpha};
   }
-  if (typeof module !== 'undefined') module.exports = {pose};
-  else root.StudioAnimation = {pose};
+  function overlayPose(item,time){
+    const end=item.start+item.duration;
+    let entry=pose({start:item.start,end,enter:item.enter,animation:item.animation},time);
+    if(!entry)return null;
+    if(item.exit&&time>end-item.exit){
+      const leaving=pose({start:0,end:item.exit+1,enter:item.exit,animation:item.exit_animation},end-time);
+      entry={x:entry.x+leaving.x,y:entry.y+leaving.y,scale:entry.scale*leaving.scale,alpha:entry.alpha*leaving.alpha};
+    }
+    return entry;
+  }
+  if (typeof module !== 'undefined') module.exports = {pose,overlayPose};
+  else root.StudioAnimation = {pose,overlayPose};
 })(typeof window !== 'undefined' ? window : this);

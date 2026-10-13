@@ -34,17 +34,26 @@ class AppTests(unittest.TestCase):
         request=app.session_state.pending_export
         latest=copy.deepcopy([photo.metadata() for photo in app.session_state.photos])
         latest[0]["labels"][0].update(text="輸出前最新文字",color="#ffcc00",font_size=60)
+        source = next(iter(app.session_state.overlay_assets))
+        layers = [dict(id="app-png", type="png", source=source, start=.5, duration=2,
+                       x=.5, y=.6, width=.3, scale=1.4, rotation=25, opacity=.8,
+                       layer=30, animation="left", exit_animation="fade", enter=.3, exit=.4)]
         app.session_state["studio_editor"]=dict(nonce="export-batch",session=app.session_state.editor_session,
-            base_revision=app.session_state.revision,seq=11,action="export",request=request["id"],photos=latest)
+            base_revision=app.session_state.revision,seq=11,action="export",request=request["id"],photos=latest,
+            overlays=layers)
         app.run()
         self.assertFalse(app.exception)
         self.assertGreater(len(app.session_state.output), 1000)
         self.assertEqual(app.session_state.photos[0].labels[0]["text"],"輸出前最新文字")
         self.assertFalse(app.session_state.editor_busy)
+        self.assertEqual(app.session_state.overlays[0]["rotation"],25)
+        app.run()
+        self.assertEqual(len(app.session_state.overlays),1)
         next(b for b in app.button if b.label == "清空目前工作階段").click().run()
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state.photos, [])
         self.assertIsNone(app.session_state.output)
+        self.assertEqual(app.session_state.overlays, [])
 
 
 if __name__ == "__main__":

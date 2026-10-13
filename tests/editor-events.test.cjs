@@ -4,19 +4,21 @@ const test=require('node:test');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const {webcrypto}=require('node:crypto');
-const {DraftState}=require('../frontend/draft-state.js');
+const {DraftState,metadata}=require('../frontend/draft-state.js');
 const StudioLabel=require('../frontend/label-raster.js');
 const StudioPhoto=require('../frontend/photo-layout.js');
 const StudioAnimation=require('../frontend/animation.js');
 const StudioAI=require('../frontend/ai-import.js');
+const StudioTimeline=require('../frontend/timeline-model.js');
+const StudioOverlay=require('../frontend/overlay-model.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
     const handlers={},ctx={font:'46px sans-serif',measureText:text=>({width:text.length*46}),
       roundRect(){},beginPath(){},fill(){},fillText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
-      arc(){},save(){},restore(){},strokeRect(){},setLineDash(){},drawImage(){draws++;}};
+      arc(){},save(){},restore(){},translate(){},rotate(){},strokeRect(){},setLineDash(){},drawImage(){draws++;}};
     return {tagName:tag,children:[],value:'',checked:true,disabled:false,hidden:false,width:1080,height:1920,
-      classList:{toggle(){},add(){},remove(){}},dataset:{},
+      classList:{toggle(){},add(){},remove(){}},dataset:{},style:{},
       getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:1080,height:1920}),
       replaceChildren(){this.children=[];},append(...children){this.children.push(...children);},
       addEventListener(name,fn){handlers[name]=fn;},removeAttribute(){},setPointerCapture(){},
@@ -27,10 +29,13 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,crypto:webcrypto,console,
+    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
+  vm.runInContext(fs.readFileSync('frontend/timeline-ui.js','utf8'),context);
+  vm.runInContext(fs.readFileSync('frontend/png-editor.js','utf8'),context);
+  context.StudioTimelineUI=window.StudioTimelineUI;context.StudioPNG=window.StudioPNG;
   vm.runInContext(fs.readFileSync('frontend/editor.js','utf8'),context);
   const rows=()=>[{id:'p1',content_hash:'hash',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
     {id:'p2',name:'second',image:'image2',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'}];
@@ -64,6 +69,37 @@ test('真正事件處理器：連續新增10個、500次移動、修改、刪除
   const rows=rebuilt.rows();rows.forEach((row,i)=>row.labels=sent.photos[i].labels);
   await rebuilt.receive({project:{photos:rows},revision:2,response:{nonce:sent.nonce,ok:true}});await promise;
   assert.equal(rebuilt.elements.get('labels').children.length,9);assert.equal(rebuilt.changes().length,1);
+});
+test('PNG新增、500次畫布移動、時間軸拖曳、指針跳轉與跨rerun均無Python事件，輸出含最新PNG',async()=>{
+  const env=environment(),assets=[{id:'asset',name:'透明PNG',image:'png-image',width:220,height:110}];
+  await env.receive({project:{photos:env.rows(),assets,overlays:[]}});
+  env.elements.get('assetLibrary').children[0].onclick();env.elements.get('assetLibrary').children[0].onclick();
+  assert.equal(vm.runInContext('draft.overlays.length',env.context),2);
+  env.elements.get('assetLibrary').children[0].onclick();
+  env.elements.get('deleteOverlay').onclick();
+  assert.equal(vm.runInContext('draft.overlays.length',env.context),2,'刪除只移除選取的PNG');
+  assert.equal(env.changes().length,0);
+  vm.runInContext('pngEditor.select(draft.overlays[1].id)',env.context);
+  env.elements.get('canvas').dispatch('pointerdown',{clientX:540,clientY:960});
+  for(let i=0;i<500;i++)env.elements.get('canvas').dispatch('pointermove',{clientX:540+i/10,clientY:960+i/10});
+  env.elements.get('canvas').dispatch('pointerup');assert.equal(env.changes().length,0);
+  const hit=vm.runInContext('timeline.hits.find(h=>h.item.type==="png")',env.context);
+  // 使用邏輯Canvas像素換算到測試DOM的固定1080×1920矩形。
+  const tc=env.elements.get('timelineCanvas'),x=(hit.x+hit.w/2)*1080/tc.width,y=(hit.y+10)*1920/tc.height;
+  tc.dispatch('pointerdown',{clientX:x,clientY:y});
+  for(let i=0;i<100;i++)tc.dispatch('pointermove',{clientX:x+i,clientY:y});tc.dispatch('pointerup');
+  assert.equal(env.changes().length,0);assert.ok(vm.runInContext('draft.overlays[0].start',env.context)>0);
+  tc.dispatch('pointerdown',{clientX:400,clientY:5});
+  tc.dispatch('pointermove',{clientX:500,clientY:5});tc.dispatch('pointerup');
+  assert.equal(env.changes().length,0,'播放指針拖曳也不送Python');
+  env.elements.get('png_rotation').value='45';env.elements.get('png_rotation').oninput();
+  env.elements.get('png_scale').value='1.5';env.elements.get('png_scale').oninput();
+  env.elements.get('photos').children[1].onclick();env.elements.get('photos').children[0].onclick();
+  const rebuilt=environment(env.storage);await rebuilt.receive({project:{photos:rebuilt.rows(),assets,overlays:[]}});
+  assert.equal(vm.runInContext('draft.overlays.length',rebuilt.context),2);
+  await rebuilt.receive({project:{photos:rebuilt.rows(),assets,overlays:[]},export_request:'png-export'});
+  const sent=rebuilt.changes()[0].value;assert.equal(sent.overlays.length,2);assert.equal(sent.schema_version,3);
+  assert.equal(sent.overlays[0].rotation,45);assert.equal(sent.overlays[0].scale,1.5);
 });
 test('AI 整批匯入保留未同步人工標籤，rerun 與元件重建不重複，輸出帶最新AI標籤',async()=>{
   const env=environment();await env.receive();env.elements.get('addLabel').onclick();

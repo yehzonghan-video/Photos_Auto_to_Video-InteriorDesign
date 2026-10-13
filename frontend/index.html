@@ -9,6 +9,7 @@
 <section class="studio">
   <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span><button id="applyChanges" class="primary">套用變更</button></div>
   <div id="photos" class="photos" aria-label="照片播放順序"></div>
+  <details class="asset-section" open><summary>PNG 素材庫 · 點選加入全片時間軸</summary><div id="assetLibrary" class="asset-library"></div><p class="hint">自己的透明 PNG 請使用上方「上傳 PNG 素材」。圖層可跨照片，所有拖曳先存在此頁。</p></details>
   <div class="editor-grid">
     <section class="preview-panel">
       <div class="preview-toolbar"><span id="mode">構圖與標籤編輯</span><span class="badge">9:16 · 1080p</span></div>
@@ -36,6 +37,7 @@
       <div id="labelForm" hidden>
         <label class="field">標籤文字<textarea id="text" rows="2" maxlength="80"></textarea></label>
         <label class="check"><input id="line" type="checkbox">顯示連接線與定位點</label>
+        <label class="field">文字圖層順序（越大越前）<input id="layer" type="number" min="0" max="1000" step="1"></label>
         <details><summary>文字與背景樣式</summary>
           <label class="field">文字大小<input id="font_size" type="range" min="24" max="96" step="1"></label>
           <div class="row"><label class="field">字體顏色<input id="color" type="color"></label><label class="field">背景顏色<input id="background" type="color"></label></div>
@@ -50,10 +52,31 @@
         </details>
         <div class="row"><button id="deleteLabel" class="danger">刪除此標籤</button><span id="position" class="hint"></span></div>
       </div>
+      <div id="overlayForm" hidden>
+        <div class="section-title">PNG 圖層 <span id="overlayName"></span></div>
+        <div class="row"><label class="field">開始秒數<input id="png_start" type="number" min="0" step=".033333"></label><label class="field">結束秒數<input id="png_end" type="number" min="0" step=".033333"></label></div>
+        <label class="field">持續秒數<input id="png_duration" type="number" min=".033333" step=".033333"></label>
+        <div class="row"><label class="field">X（中心比例）<input id="png_x" type="number" min="0" max="1" step=".01"></label><label class="field">Y（中心比例）<input id="png_y" type="number" min="0" max="1" step=".01"></label></div>
+        <label class="field">縮放<input id="png_scale" type="range" min=".1" max="5" step=".01"></label>
+        <label class="field">旋轉角度<input id="png_rotation" type="range" min="-180" max="180" step="1"></label>
+        <label class="field">透明度<input id="png_opacity" type="range" min="0" max="1" step=".01"></label>
+        <label class="field">PNG 圖層順序（越大越前）<input id="png_layer" type="number" min="0" max="1000" step="1"></label>
+        <label class="field">PNG 進場動畫<select id="png_animation"><option value="none">無動畫</option><option value="fade">淡入</option><option value="left">左側滑入</option><option value="right">右側滑入</option><option value="up">上方滑入</option><option value="down">下方滑入</option><option value="scale">縮放出現</option></select></label>
+        <label class="field">PNG 出場動畫<select id="png_exit_animation"><option value="none">無動畫</option><option value="fade">淡出</option><option value="left">往左滑出</option><option value="right">往右滑出</option><option value="up">往上滑出</option><option value="down">往下滑出</option><option value="scale">縮小消失</option></select></label>
+        <div class="row"><label class="field">進場時長<input id="png_enter" type="number" min="0" max="3" step=".1"></label><label class="field">出場時長<input id="png_exit" type="number" min="0" max="3" step=".1"></label></div>
+        <button id="deleteOverlay" class="danger">刪除此 PNG 圖層</button>
+        <p class="hint">拖曳 PNG 移動，拖右下角方點縮放，拖上方圓點旋轉；時間使用全片秒數。</p>
+      </div>
+      <div class="row"><button id="bringFront">移到最上層</button><button id="sendBack">移到最下層</button></div>
       <p id="status" role="status" class="status">編輯暫存在此頁；完成後按「套用變更」。輸出前會自動套用。</p>
       <p id="aiStatus" role="status" class="hint"></p>
     </aside>
   </div>
+  <section class="timeline-section">
+    <div class="strip-header"><span>多軌時間軸 <small>拖素材移動，拖左右邊界調長度；照片拖曳調順序</small></span><label>時間軸縮放 <input id="timelineZoom" type="range" min="1" max="4" step=".5" value="1"></label></div>
+    <div class="timeline-scroll"><canvas id="timelineCanvas" width="900" height="180" tabindex="0" aria-label="多軌時間軸；照片、文字、PNG，拖曳素材與左右邊界，點擊刻度跳轉"></canvas></div>
+    <p class="hint">紅線為播放指針。PNG 使用全片時間；文字隨照片順序移動。照片縮短會截短附屬標籤及超過影片結尾的 PNG。</p>
+  </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="editor.js"></script>
 </body></html>

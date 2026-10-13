@@ -17,3 +17,15 @@ def pose(label, time):
     if animation == "scale": scale, alpha = .65 + .35 * ease, ease
     if animation not in ("none", "fade", "scale"): alpha = ease
     return dict(x=x, y=y, scale=scale, alpha=alpha)
+
+
+def overlay_pose(item, time):
+    end = item["start"] + item["duration"]
+    entry = pose(dict(start=item["start"], end=end, enter=item["enter"], animation=item["animation"]), time)
+    if entry is None:
+        return None
+    if item["exit"] and time > end-item["exit"]:
+        leaving = pose(dict(start=0, end=item["exit"]+1, enter=item["exit"], animation=item["exit_animation"]), end-time)
+        entry = dict(x=entry["x"]+leaving["x"], y=entry["y"]+leaving["y"],
+                     scale=entry["scale"]*leaving["scale"], alpha=entry["alpha"]*leaving["alpha"])
+    return entry

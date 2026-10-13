@@ -91,9 +91,16 @@ def tile_position(label, tile):
     return min(label["x"] * W, W - tile.width), min(label["y"] * H, H - tile.height)
 
 
-def render_frame(base, labels, tiles, time):
+def render_frame(base, labels, tiles, time, overlays=None, global_time=None):
     frame = base.copy()
-    for label, tile in zip(labels, tiles):
+    from .overlays import composite_overlay
+    layers = [(label.get("layer",10),index,"label",(label,tile)) for index,(label,tile) in enumerate(zip(labels,tiles))]
+    layers += [(item[0]["layer"],len(labels)+index,"png",item) for index,item in enumerate(overlays or [])]
+    for _, _, kind, material in sorted(layers, key=lambda entry:(entry[0],entry[1])):
+        if kind == "png":
+            composite_overlay(frame, material, time if global_time is None else global_time)
+            continue
+        label, tile = material
         state = pose(label, time)
         if state is None:
             continue

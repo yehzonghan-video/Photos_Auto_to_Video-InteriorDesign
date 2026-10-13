@@ -1,5 +1,6 @@
 """元件批次同步交易：驗證版本、去重、以整份草稿替換，而非附加標籤。"""
 from .models import update_project
+from .overlays import validate_overlays
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -44,9 +45,15 @@ def consume_editor_event(state, event):
         state["editor_response"] = dict(nonce=nonce, ok=False, message="請先修正編輯器欄位，再重新輸出。")
         return
     try:
+        # 先驗證 PNG，再進行會修改照片的交易，失敗時不留下半套更新。
+        rows = event.get("photos", [])
+        duration = sum(float(row["duration"]) for row in rows)
+        overlays = validate_overlays(event.get("overlays", state.get("overlays", [])),
+                                     state.get("overlay_assets", {}), duration)
         photos = apply_editor_event(state["photos"], event, state["editor_session"],
                                     state["revision"], request["id"] if request else None)
         state["photos"] = photos
+        state["overlays"] = overlays
         acknowledgements = event.get("imported_batches", [])
         if isinstance(acknowledgements, list):
             state["ai_imports"] = [batch for batch in state.get("ai_imports", [])

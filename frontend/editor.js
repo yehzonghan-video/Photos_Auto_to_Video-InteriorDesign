@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const W = 1080, H = 1920, ctx = $('canvas').getContext('2d');
 let photos = [], selectedPhoto = null, selectedLabel = null, imageCache = new Map(), tileCache = new Map();
+let assetMeta=new Map(),assetCache=new Map();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
 const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
@@ -23,16 +24,22 @@ function validProject() {
     if (!Number.isFinite(p.duration) || p.duration < 1 || p.duration > 20) {status('每張照片需為 1～20 秒。', true); return false;}
     for (const l of p.labels) {
       if (!l.text.trim() || l.text.length > 80 || !Number.isFinite(l.start) || !Number.isFinite(l.end) || !Number.isFinite(l.enter) ||
-          l.start < 0 || l.end > p.duration || l.end <= l.start || l.enter < 0 || l.enter > 3 || l.enter > l.end-l.start) {
+          l.start < 0 || l.end > p.duration || l.end <= l.start || l.enter < 0 || l.enter > 3 || l.enter > l.end-l.start ||
+          !Number.isInteger(l.layer??10)||(l.layer??10)<0||(l.layer??10)>1000) {
         status('請確認標籤文字，以及出現／消失時間與進場時長。', true); return false;
       }
     }
+  }
+  if(draft.overlays.length>32){status('全片最多32個PNG圖層。',true);return false;}
+  for(const o of draft.overlays){
+    if(!assetMeta.has(o.source)||o.duration<1/30-1e-8||o.start<0||o.start+o.duration>total()+1e-7||o.enter+o.exit>o.duration+1e-7){
+      status('請確認PNG素材、開始與結束時間及進出場時長。',true);return false;}
   }
   return true;
 }
 function persistDraft() {
   if(!draft.session)return;
-  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel})));storageFailed=false;}
+  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time})));storageFailed=false;}
   catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
 window.addEventListener('pagehide',persistDraft);
@@ -45,9 +52,16 @@ function syncStatus() {
   $('applyChanges').disabled=!!draft.pending||recording||preparing||serverBusy;
 }
 function markEdited(persist=true) {
+  const priorPhoto=selectedPhoto;
   draft.touch(photos);clearBrowserResult();
+  StudioTimeline.clampOverlays(draft.overlays,total());
+  time=clamp(time,0,Math.max(0,total()-1/30));
+  const active=pngEditor.item();
+  if(editing&&active&&!pngEditor.active(active)){time=active.start;selectedPhoto=locate(time).photo?.id;}
+  else if(editing&&!active&&photo())time=clamp(time,photoOffset(photo().id),photoOffset(photo().id)+photo().duration-1/30);
+  if(selectedPhoto!==priorPhoto){selectedLabel=photo()?.labels[0]?.id;buildLabels();buildPhotos();}
   if(persist)persistDraft();
-  syncStatus();
+  syncStatus();timeline.draw();
 }
 function queueDraw(){if(!editRaf)editRaf=requestAnimationFrame(()=>{editRaf=0;info();draw();});}
 function synchronize(action='apply',request=null) {
@@ -83,12 +97,13 @@ window.addEventListener('message', async event => {
       try {const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');
         if(draft.restore(saved,args.session)){
           selectedPhoto=saved.selection?.selectedPhoto;selectedLabel=saved.selection?.selectedLabel;
+          pngEditor.selected=saved.selection?.selectedOverlay||null;time=saved.selection?.time||0;
           if(draft.pending&&args.response?.nonce!==draft.pending.nonce){draft.pending=null;draft.dirty=true;}
         }
       }catch(error){sessionStorage.removeItem(storageKey);}
       receivedSession=args.session;
     }
-    const result=draft.receive(rows,args.session,args.revision,args.response);
+    const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[]);
     if(result.stale)return;
     photos=draft.rows;
     const images = new Map(), tiles = new Map();
@@ -99,8 +114,11 @@ window.addEventListener('message', async event => {
         tiles.set(id, current?.src===data.src?current:{image:await loadImage(data.src),key,src:data.src});
       }
     }));
+    const assets=args.project.assets||[],pngImages=new Map();
+    await Promise.all(assets.map(async asset=>pngImages.set(asset.id,assetCache.get(asset.id)||await loadImage(asset.image))));
     if (generation !== renderGeneration) return;
     imageCache = images; tileCache = tiles;
+    assetMeta=new Map(assets.map(asset=>[asset.id,asset]));assetCache=pngImages;
     if(lastRevision!==null && args.revision!==lastRevision) {
       clearBrowserResult();
       if(recording && recorder?.state==='recording') {recordingFailure='錄製期間專案內容改變，請重新錄製。';recorder.stop();}
@@ -115,7 +133,8 @@ window.addEventListener('message', async event => {
     }
     if (!photos.some(p => p.id === selectedPhoto)) selectedPhoto = photos[0]?.id;
     if (!photo()?.labels.some(l => l.id === selectedLabel)) selectedLabel = photo()?.labels[0]?.id;
-    buildPhotos(); buildLabels(); fillForm(); draw(); support();
+    time=clamp(time,0,Math.max(0,total()-1/30));
+    pngEditor.library();buildPhotos(); buildLabels(); fillForm(); draw(); support();
     lockEditor(recording||preparing||serverBusy);if(!recording&&!preparing)syncStatus();
     persistDraft();resize();
     if(result.matched) {
@@ -141,7 +160,7 @@ function button(text, fn, className = '') {
 function buildPhotos() {
   $('photos').replaceChildren();
   photos.forEach((p, index) => {
-    const item = button('', () => {if(recording||preparing||serverBusy)return; stopPlayback(); editing=true; selectedPhoto=p.id; selectedLabel=p.labels[0]?.id; persistDraft();buildPhotos(); buildLabels(); fillForm(); draw();}, 'photo' + (p.id === selectedPhoto ? ' active' : ''));
+    const item = button('', () => selectMaterial({type:'photo',id:p.id,source:p.id,start:photoOffset(p.id)}), 'photo' + (p.id === selectedPhoto ? ' active' : ''));
     item.draggable = true; item.dataset.photoId = p.id; item.title = p.name;
     const img = document.createElement('img'); img.src = p.image; img.alt = p.name;
     const caption = document.createElement('span'); caption.textContent = `${index+1} · ${p.duration}s · ${p.name}`;
@@ -165,11 +184,11 @@ function buildLabels() {
   $('labels').replaceChildren();
   const p=photo(); if(!p)return;
   if (!p.labels.length) $('labels').textContent = '尚無標籤，先新增一個裝修項目。';
-  p.labels.forEach(l => $('labels').append(button(l.text, () => {selectedLabel=l.id; persistDraft();buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
+  p.labels.forEach(l => $('labels').append(button(l.text, () => {pngEditor.selected=null;selectedLabel=l.id; persistDraft();buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
   $('labelForm').hidden = !label();
   $('addLabel').disabled = p.labels.length >= 12 || recording||preparing||serverBusy;
 }
-const labelFields = ['text','font_size','color','background','opacity','radius','line','animation','start','end','enter'];
+const labelFields = ['text','font_size','color','background','opacity','radius','line','animation','start','end','enter','layer'];
 function fillForm() {
   const p=photo(); if(!p)return;
   if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${photos.findIndex(row=>row.id===p.id)+1} / ${photos.length}`;
@@ -178,10 +197,12 @@ function fillForm() {
   for (const key of ['zoom','crop_x','crop_y']) $(key).disabled=recording || $('fit').value==='contain';
   const l=label(); $('labelForm').hidden=!l;
   if(l) {
+    l.layer??=10;
     for(const key of labelFields) {if(document.activeElement===$(key))continue;if(key==='line')$(key).checked=l[key];else $(key).value=l[key];}
     $('start').max=p.duration; $('end').max=p.duration;
     info();
   }
+  pngEditor.refresh();
 }
 function info() {
   const l=label(); if(!l)return;
@@ -204,14 +225,17 @@ function bounds(l) {
   return {width,height,x:Math.min(l.x*W,W-width),y:Math.min(l.y*H,H-height)};
 }
 function draw() {
-  const state=editing?{photo:photo(),local:0}:locate(time), p=state.photo;
+  const state=editing?{photo:photo(),local:time-photoOffset(photo()?.id)}:locate(time), p=state.photo;
   ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p)return;
   const image=imageCache.get(p.id);
   if(image) {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
     ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
   }
-  for(const l of p.labels) {
+  const materials=p.labels.map((l,index)=>({layer:l.layer??10,index,label:l})).concat(draft.overlays.map((o,index)=>({layer:o.layer,index:p.labels.length+index,overlay:o})));
+  for(const item of materials.sort((a,b)=>a.layer-b.layer||a.index-b.index)) {
+    if(item.overlay){pngEditor.draw(ctx,item.overlay,time,editing);continue;}
+    const l=item.label;
     const position=editing?{x:0,y:0,scale:1,alpha:1}:StudioAnimation.pose(l,state.local);
     if(!position)continue;
     const b=bounds(l), x=b.x+position.x*W,y=b.y+position.y*H,tile=tileFor(l);
@@ -230,11 +254,14 @@ function draw() {
   }
   $('mode').textContent=editing?'構圖與標籤編輯':'動畫預覽'; $('clock').textContent=`${time.toFixed(1)} / ${total().toFixed(1)} s`;
   $('seek').value=time;
+  timeline.draw();
 }
 function coords(e) {const r=$('canvas').getBoundingClientRect();return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};}
 $('canvas').addEventListener('pointerdown',e=>{
   if(!editing||recording||preparing||serverBusy)return;
   const xy=coords(e),p=photo();if(!p)return;
+  const hitLayer=Math.max(-1,...p.labels.filter(l=>{const b=bounds(l);return Math.hypot(xy.x-l.point_x*W,xy.y-l.point_y*H)<42||(xy.x>=b.x&&xy.x<=b.x+b.width&&xy.y>=b.y&&xy.y<=b.y+b.height);}).map(l=>l.layer??10));
+  if(pngEditor.down(xy,hitLayer)){e.preventDefault();dragging={type:'png'};$('canvas').setPointerCapture(e.pointerId);draw();return;}
   // 優先選取目前標籤的定位點，避免與其他文字碰撞時難以拖曳。
   const ordered=[...p.labels].reverse().sort((a,b)=>Number(b.id===selectedLabel)-Number(a.id===selectedLabel));
   for(const l of ordered) {
@@ -242,17 +269,24 @@ $('canvas').addEventListener('pointerdown',e=>{
     if(Math.hypot(xy.x-l.point_x*W,xy.y-l.point_y*H)<42) {dragging={type:'point',id:l.id,dx:0,dy:0};break;}
     if(xy.x>=b.x&&xy.x<=b.x+b.width&&xy.y>=b.y&&xy.y<=b.y+b.height) {dragging={type:'label',id:l.id,dx:xy.x-b.x,dy:xy.y-b.y};break;}
   }
-  if(dragging) {e.preventDefault();selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
+  if(dragging) {e.preventDefault();pngEditor.selected=null;selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
 });
 $('canvas').addEventListener('pointermove',e=>{
-  if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e),l=label();if(!l)return;
+  if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e);
+  if(dragging.type==='png'){pngEditor.move(xy);markEdited(false);queueDraw();return;}
+  const l=label();if(!l)return;
   if(dragging.type==='point') {l.point_x=clamp(xy.x/W,0,1);l.point_y=clamp(xy.y/H,0,1);}
   else {const b=bounds(l);l.x=clamp(xy.x-dragging.dx,0,W-b.width)/W;l.y=clamp(xy.y-dragging.dy,0,H-b.height)/H;}
   markEdited(false);queueDraw();
 });
-function finishDrag(){if(dragging){dragging=null;persistDraft();}}
+function finishDrag(){if(dragging){dragging=null;pngEditor.drag=null;persistDraft();}}
 $('canvas').addEventListener('pointerup',finishDrag);$('canvas').addEventListener('pointercancel',finishDrag);
 $('canvas').addEventListener('keydown',e=>{
+  if(editing&&!recording&&!preparing&&!serverBusy&&pngEditor.item()){
+    if(e.key==='Delete'){e.preventDefault();pngEditor.remove();return;}
+    if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const o=pngEditor.item(),step=e.shiftKey?30:6;
+      o.x+=((e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0)/W);o.y+=((e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0)/H);pngEditor.clampPosition(o);pngEditor.refresh();draw();markEdited();return;}
+  }
   const l=label();if(!editing||recording||preparing||serverBusy||!l||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;
   e.preventDefault();const step=e.shiftKey?30:6,b=bounds(l);
   l.x=clamp(b.x+(e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0),0,W-b.width)/W;
@@ -267,19 +301,17 @@ function tick(now) {
 }
 $('play').onclick=()=>{if(recording)return;if(playing){stopPlayback();return;}editing=false;playing=true;if(time>=total()-1/30)time=0;startClock=performance.now()-time*1000;$('play').textContent='❚❚ 暫停';raf=requestAnimationFrame(tick);};
 $('edit').onclick=()=>{if(recording)return;stopPlayback();editing=true;draw();};
-$('seek').oninput=()=>{if(recording)return;stopPlayback();editing=false;time=Number($('seek').value);draw();};
+$('seek').oninput=()=>seekTime(Number($('seek').value));
 $('duration').onchange=()=>{
   const p=photo(),value=Number($('duration').value); if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
-  p.duration=value;
-  for(const l of p.labels){l.start=Math.min(l.start,value-.1);l.end=Math.min(l.end,value);l.enter=Math.min(l.enter,l.end-l.start);}
+  StudioTimeline.photoDuration(p,value);
   buildPhotos();fillForm();markEdited();
 };
 $('duration').oninput=()=>{
   clearBrowserResult();
   const p=photo(),value=Number($('duration').value);
   if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
-  p.duration=value;
-  for(const l of p.labels){l.start=Math.min(l.start,value-.1);l.end=Math.min(l.end,value);l.enter=Math.min(l.enter,l.end-l.start);}
+  StudioTimeline.photoDuration(p,value);
   buildPhotos();markEdited();
 };
 $('fit').onchange=()=>{photo().fit=$('fit').value;editing=true;stopPlayback();fillForm();draw();markEdited();};
@@ -301,6 +333,7 @@ for(const key of labelFields) {
 }
 $('addLabel').onclick=()=>{
   const p=photo();if(!p||p.labels.length>=12)return;
+  pngEditor.selected=null;
   const l={id:crypto.randomUUID(),text:'裝修項目',x:.12,y:.28,point_x:.58,point_y:.52,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'left',start:0,enter:.6,end:p.duration};
   p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();markEdited();
 };
@@ -359,4 +392,24 @@ $('browserExport').onclick=async()=>{
   }catch(error){status(`${error.message} 可使用下方免費 FFmpeg 輸出。`,true);}
   finally{clearTimeout(timer);if(visibility)document.removeEventListener('visibilitychange',visibility);recording=false;stopPlayback();if(recorder?.state==='recording')recorder.stop();stream?.getTracks().forEach(track=>track.stop());lockEditor(false);resize();}
 };
+function photoOffset(id){let t=0;for(const p of photos){if(p.id===id)return t;t+=p.duration;}return 0;}
+function seekTime(value,edit=false){if(recording||preparing||serverBusy)return;stopPlayback();time=clamp(StudioTimeline.snap(value),0,Math.max(0,total()-1/30));editing=edit;
+  const p=locate(time).photo;if(p&&p.id!==selectedPhoto){selectedPhoto=p.id;selectedLabel=p.labels[0]?.id;buildPhotos();buildLabels();fillForm();}draw();persistDraft();}
+function selectMaterial(item){if(recording||preparing||serverBusy)return;stopPlayback();editing=true;
+  if(item.type==='png'){pngEditor.selected=item.id;selectedLabel=null;seekTime(item.start,true);}
+  else {pngEditor.selected=null;selectedPhoto=item.source;selectedLabel=item.type==='label'?item.id:photo()?.labels[0]?.id;time=item.start;}
+  buildPhotos();buildLabels();fillForm();draw();persistDraft();}
+const pngEditor=new StudioPNG.PNGEditor({overlays:()=>draft.overlays,assets:()=>assetMeta,images:()=>assetCache,
+  locked:()=>recording||preparing||serverBusy,total,time:()=>time,status,
+  select:o=>selectMaterial(o),changed:()=>{editing=true;stopPlayback();markEdited();fillForm();draw();}});
+const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:()=>photos,overlays:()=>draft.overlays,time:()=>time,
+  locked:()=>recording||preparing||serverBusy,seek:seekTime,select:selectMaterial,
+  selected:item=>item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
+  change:persist=>{stopPlayback();editing=true;markEdited(persist);buildPhotos();fillForm();draw();}});
+$('timelineZoom').oninput=()=>{timeline.zoom=Number($('timelineZoom').value);timeline.draw();};
+function stack(front){if(recording||preparing||serverBusy)return;const selected=pngEditor.item()||label();if(!selected)return;
+  const all=[...photos.flatMap(p=>p.labels),...draft.overlays].sort((a,b)=>(a.layer??10)-(b.layer??10));
+  const order=all.filter(o=>o!==selected);if(front)order.push(selected);else order.unshift(selected);
+  order.forEach((o,i)=>o.layer=i);markEdited();fillForm();draw();}
+$('bringFront').onclick=()=>stack(true);$('sendBack').onclick=()=>stack(false);
 post('streamlit:componentReady',{apiVersion:1});resize();
