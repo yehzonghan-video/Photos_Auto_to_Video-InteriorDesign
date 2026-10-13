@@ -11,6 +11,11 @@
     if (label.animation === 'fade') alpha = ease;
     if (label.animation === 'scale') { scale = .65 + .35 * ease; alpha = ease; }
     if (!['none', 'fade', 'scale'].includes(label.animation)) alpha = ease;
+    // 文字換字使用淡出，不移動位置；PNG 的出場仍由 overlayPose 處理。
+    if(label.exit&&time>label.end-label.exit){
+      const q=Math.min(1,(label.end-time)/label.exit);
+      alpha*=1-Math.pow(1-q,3);
+    }
     return {x, y, scale, alpha};
   }
   function overlayPose(item,time){

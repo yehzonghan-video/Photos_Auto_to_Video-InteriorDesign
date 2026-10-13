@@ -47,7 +47,7 @@
     if(mode==='move'){start=clamp(start+delta,startBound,endBound-item.duration);end=start+item.duration;}
     else if(mode==='left')start=clamp(start+delta,startBound,end-MIN);
     else end=clamp(end+delta,start+MIN,endBound);
-    if(item.type==='label'){const l=p.labels.find(l=>l.id===item.id);l.start=start-startBound;l.end=end-startBound;l.enter=Math.min(l.enter,l.end-l.start);if(l.comparison_side)l.auto_timing=false;}
+    if(item.type==='label'){const l=p.labels.find(l=>l.id===item.id);l.start=start-startBound;l.end=end-startBound;l.enter=Math.min(l.enter,l.end-l.start);if(l.exit)l.exit=Math.min(l.exit,l.end-l.start);if(l.comparison_side)l.auto_timing=false;}
     else {const o=overlays.find(o=>o.id===item.id);o.start=start;o.duration=end-start;fitAnimations(o);}
   }
   function lanes(clips){

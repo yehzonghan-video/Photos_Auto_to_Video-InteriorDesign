@@ -28,6 +28,19 @@ test('既有標題只升級一次，保留人工名稱與位置；分割仍同�
   c.mode='switch';assert.equal(C.visibleTitle(c,c.labels[1],0),false);
   assert.equal(C.visibleTitle(c,c.labels[1],0,'after'),true);
 });
+test('72px標題先漸隱再漸顯，短片段縮短淡化時間，與Python逐幀一致',()=>{
+  const c=C.make(...photos,id),[b,a]=c.labels;
+  assert.equal(b.font_size,72);assert.equal(a.font_size,72);
+  assert.equal(b.exit,.35);assert.equal(a.enter,.35);
+  assert.ok(A.pose(b,1.7).alpha>A.pose(b,1.9).alpha);
+  assert.equal(A.pose(a,2).alpha,0);assert.ok(A.pose(a,2.1).alpha<A.pose(a,2.3).alpha);
+  const rows=[];for(let frame=45;frame<=75;frame++)for(const l of c.labels)rows.push({l,t:frame/30});
+  const python=execFileSync('.venv/Scripts/python.exe',['-c','import json,sys;from studio.animation import pose;r=json.load(sys.stdin);print(json.dumps([pose(x["l"],x["t"]) for x in r]))'],{input:JSON.stringify(rows),encoding:'utf8'});
+  const expected=JSON.parse(python);rows.forEach((r,i)=>assert.deepEqual(A.pose(r.l,r.t),expected[i]));
+  C.resize(c,1);assert.equal(C.validate([c],photos),null);
+  b.font_size=90;b.comparison_title_version=1;C.upgradeTitles(c);assert.equal(b.font_size,90,'較大人工字級不縮小');
+  c.mode='split';C.titleTimes(c);assert.equal(b.exit,0);assert.equal(a.enter,0);
+});
 test('前後自動配對保留未配對來源，手動可重複使用，重按不重複加入',()=>{
   const p=[...photos,{...photos[0],id:'b2'}],clips=[];const r=C.pair(p,clips,id);assert.equal(r.unmatched,1);assert.equal(clips.length,1);
   C.pair(p,clips,id);assert.equal(clips.length,1);clips.push(C.make(p[2],p[1],id));clips.push(C.make(p[0],p[1],id));assert.equal(C.validate(clips,p),null);assert.equal(p.length,3);

@@ -361,13 +361,13 @@ for(const key of labelFields) {
   $(key).oninput=()=> {
     const l=label();if(!l)return;
     l[key]=key==='line'?$(key).checked:['text','color','background','animation'].includes(key)?$(key).value:Number($(key).value);
-    if(['start','end','enter'].includes(key)&&l.comparison_side)l.auto_timing=false;
+    if(['start','end','enter'].includes(key)&&l.comparison_side){l.auto_timing=false;l.exit=Math.min(l.exit||0,Math.max(0,l.end-l.start));}
     buildLabels();editing=true;stopPlayback();info();draw();markEdited();
   };
   $(key).onchange=()=> {
     const l=label();if(!l)return;
     l[key]=key==='line'?$(key).checked:['text','color','background','animation'].includes(key)?$(key).value:Number($(key).value);
-    if(['start','end','enter'].includes(key)&&l.comparison_side)l.auto_timing=false;
+    if(['start','end','enter'].includes(key)&&l.comparison_side){l.auto_timing=false;l.exit=Math.min(l.exit||0,Math.max(0,l.end-l.start));}
     buildLabels();info();draw();markEdited();
   };
 }

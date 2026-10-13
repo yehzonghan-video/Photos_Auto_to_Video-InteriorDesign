@@ -16,6 +16,11 @@ def pose(label, time):
     if animation == "fade": alpha = ease
     if animation == "scale": scale, alpha = .65 + .35 * ease, ease
     if animation not in ("none", "fade", "scale"): alpha = ease
+    # 與 Canvas 相同的文字漸隱；沒有 exit 的既有標籤維持原動畫。
+    exit_duration = label.get("exit", 0)
+    if exit_duration and time > label["end"] - exit_duration:
+        q = min(1., (label["end"] - time) / exit_duration)
+        alpha *= 1 - (1 - q) ** 3
     return dict(x=x, y=y, scale=scale, alpha=alpha)
 
 

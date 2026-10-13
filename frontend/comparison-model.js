@@ -7,14 +7,19 @@
     l.start=c.mode==='split'||l.comparison_side==='before'?0:c.before_time;
     l.end=c.mode==='split'||l.comparison_side==='after'?c.duration:c.before_time;
     // 前停留可為0：空區間不會繪製，也不會多留一影格與施工後重疊。
-    l.end=Math.max(l.start,l.end);l.enter=Math.min(l.enter,l.end-l.start);}
+    l.end=Math.max(l.start,l.end);
+    l.enter=c.mode!=='split'&&l.comparison_side==='after'?Math.min(.35,l.end-l.start):0;
+    l.exit=c.mode!=='split'&&l.comparison_side==='before'?Math.min(.35,l.end-l.start):0;}
     alignTitles(c);}
   function alignTitles(c,source){if(c.mode==='split')return;
     const titles=c.labels.filter(l=>l.comparison_side),base=source||titles.find(l=>l.comparison_side==='before')||titles[0];
     if(base)for(const l of titles){l.x=base.x;l.y=base.y;}}
   function upgradeTitles(c){let changed=false;
-    for(const l of c.labels){if(!l.comparison_side||l.comparison_title_version===1)continue;
-      Object.assign(l,{opacity:0,radius:0,line:false,animation:'none',enter:0,comparison_title_version:1});changed=true;}
+    for(const l of c.labels){if(!l.comparison_side||l.comparison_title_version===2)continue;
+      const after=l.comparison_side==='after',length=Math.max(0,l.end-l.start);
+      Object.assign(l,{font_size:Math.max(72,l.font_size),opacity:0,radius:0,line:false,
+        animation:after?'fade':'none',enter:after?Math.min(.35,length):0,
+        exit:after?0:Math.min(.35,length),comparison_title_version:2});changed=true;}
     if(changed)titleTimes(c);return changed;}
   function visibleTitle(c,l,t,view='combined'){
     if(!l.comparison_side)return true;
@@ -24,13 +29,13 @@
     mode:'switch',transition:'fade',direction:'ltr',duration:5,before_time:2,transition_time:1,split:.5,show_line:true,
     before_crop:crop(before),after_crop:crop(after),labels:[]};
     for(const [side,text] of [['before','施工前'],['after','施工後']])c.labels.push({id:id(),text,x:.06,y:.08,
-      point_x:.5,point_y:.5,font_size:46,color:'#ffffff',background:'#222822',opacity:0,radius:0,line:false,
-      animation:'none',start:0,end:5,enter:0,layer:10,comparison_side:side,auto_timing:true,comparison_title_version:1});
+      point_x:.5,point_y:.5,font_size:72,color:'#ffffff',background:'#222822',opacity:0,radius:0,line:false,
+      animation:side==='after'?'fade':'none',start:0,end:5,enter:0,exit:0,layer:10,comparison_side:side,auto_timing:true,comparison_title_version:2});
     titleTimes(c);return c;}
   function resize(c,value){const length=clamp(snap(value),1,20),ratio=length/c.duration;
     c.before_time*=ratio;c.transition_time*=ratio;c.duration=length;
     const phase=c.before_time+c.transition_time;if(phase>length-1/30){const factor=(length-1/30)/phase;c.before_time*=factor;c.transition_time*=factor;}
-    for(const l of c.labels){l.start=Math.min(l.start,length-1/30);l.end=clamp(l.end,l.start+1/30,length);l.enter=Math.min(l.enter,l.end-l.start);}
+    for(const l of c.labels){l.start=Math.min(l.start,length-1/30);l.end=clamp(l.end,l.start+1/30,length);l.enter=Math.min(l.enter,l.end-l.start);if(l.exit)l.exit=Math.min(l.exit,l.end-l.start);}
     titleTimes(c);}
   function pair(photos,clips,id){const b=photos.filter(p=>p.role==='before'),a=photos.filter(p=>p.role==='after');let added=0,skipped=0;
     for(let i=0;i<Math.min(b.length,a.length);i++){

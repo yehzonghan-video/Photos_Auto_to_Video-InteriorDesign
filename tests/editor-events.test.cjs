@@ -67,7 +67,7 @@ test('前後標題拖曳共用位置、選取自動跳至對應時間、舊草�
   const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
   assert.ok(vm.runInContext('photo().labels[0].x>.2',rebuilt.context));assert.equal(rebuilt.changes().length,0);
   const promise=rebuilt.elements.get('applyChanges').onclick(),sent=rebuilt.changes()[0].value;
-  assert.equal(sent.comparisons[0].labels[0].opacity,0);assert.equal(sent.comparisons[0].labels[0].comparison_title_version,1);
+  assert.equal(sent.comparisons[0].labels[0].opacity,0);assert.equal(sent.comparisons[0].labels[0].comparison_title_version,2);
   await rebuilt.receive({project:{...project,comparisons:sent.comparisons},revision:3,response:{nonce:sent.nonce,ok:true}});await promise;
 });
 test('真正事件處理器：連續新增10個、500次移動、修改、刪除與切換照片均不送 Python',async()=>{

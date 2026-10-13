@@ -41,8 +41,11 @@ class ComparisonTests(unittest.TestCase):
             self.assertEqual(len(labels),1)
             self.assertEqual(labels[0]['comparison_side'],'before' if frame/30<2 else 'after')
         result=validate_comparisons([c],photos)[0]
-        self.assertTrue(all(l['comparison_title_version']==1 for l in result['labels']))
-        c['before_time']=0;before.update(start=0,end=0,enter=0);after.update(start=0)
+        self.assertTrue(all(l['comparison_title_version']==2 for l in result['labels']))
+        self.assertTrue(all(l['font_size']==72 for l in result['labels']))
+        self.assertGreater(pose(before,1.7)['alpha'],pose(before,1.9)['alpha'])
+        self.assertGreater(pose(after,2.3)['alpha'],pose(after,2.1)['alpha'])
+        c['before_time']=0;before.update(start=0,end=0,enter=0,exit=0);after.update(start=0)
         self.assertEqual(validate_comparisons([c],photos)[0]['labels'][0]['end'],0)
         self.assertIsNone(pose(before,0));self.assertIsNotNone(pose(after,0))
 
@@ -54,6 +57,30 @@ class ComparisonTests(unittest.TestCase):
         again,_=auto_pair(photos,rows);self.assertEqual(len(again),3)
         for values in ({'split':2},{'mode':'unknown'},{'transition_time':20},{'duration':float('nan')},{'before_id':'missing'},{'before_id':{}}):
             with self.assertRaises(ValueError):validate_comparisons([{**rows[0],**values}],photos)
+
+    def test_real_mp4_large_titles_fade_out_then_in(self):
+        photos=[source('b','before','black'),source('a','after','black')]
+        c=new_comparison(*photos);c.update(duration=3,before_time=1,transition_time=.5)
+        c['labels'][0]['end']=1;c['labels'][1].update(start=1,end=3)
+        data=export_video(photos,template='compare',comparisons=[c])
+        indices=(20,25,29,30,31,35,41)
+        with tempfile.TemporaryDirectory(prefix='title-fade-') as folder:
+            video=Path(folder)/'case.mp4';video.write_bytes(data)
+            select='+'.join(f'eq(n\\,{index})' for index in indices)
+            subprocess.run([ffmpeg_path(),'-y','-i',str(video),'-vf',f'select={select}',
+                            '-vsync','0',str(Path(folder)/'%02d.png')],capture_output=True,check=True,timeout=60)
+            brightness=[]
+            for i,index in enumerate(indices,1):
+                with Image.open(Path(folder)/f'{i:02d}.png') as image:
+                    self.assertEqual(image.size,(1080,1920))
+                    brightness.append(ImageStat.Stat(image.convert('L').crop((60,145,350,300))).mean[0])
+                    base=comparison_frame(c,prepare_comparison(c,photos),index/30)
+                    expected=render_frame(base,c['labels'],[label_tile(l) for l in c['labels']],index/30)
+                    delta=ImageChops.difference(expected.convert('L'),image.convert('L'))
+                    self.assertLess(ImageStat.Stat(delta.crop((60,145,350,300))).mean[0],3)
+            self.assertGreater(brightness[0],brightness[1]);self.assertGreater(brightness[1],brightness[2])
+            self.assertLess(brightness[3],.5,'換字邊界施工前已消失、施工後正準備漸顯')
+            self.assertLess(brightness[4],brightness[5]);self.assertLess(brightness[5],brightness[6])
 
     def test_mask_is_real_reveal_split_slide_and_cut_pixels(self):
         photos=[source('b','before','red'),source('a','after','blue')];c=new_comparison(*photos);c['show_line']=False
