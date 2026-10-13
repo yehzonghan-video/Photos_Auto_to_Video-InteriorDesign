@@ -5,6 +5,7 @@ import uuid
 from PIL import Image, ImageDraw
 from .models import number, validate_label, new_label
 from .rendering import crop_photo
+from .safe_area import title_position
 
 MAX_CLIPS = 24
 
@@ -23,10 +24,10 @@ def new_comparison(before, after):
         before_crop=crop_settings(before.metadata()), after_crop=crop_settings(after.metadata()), labels=[])
     for side, text, start, end in (("before", "施工前", 0, 2), ("after", "施工後", 2, 5)):
         label=new_label(5)
-        label.update(text=text,x=.06,y=.08,font_size=72,line=False,opacity=0,radius=0,
+        label.update(text=text,**title_position(),font_size=72,line=False,opacity=0,radius=0,
                      animation="fade" if side=="after" else "none",enter=.35 if side=="after" else 0,
                      exit=.35 if side=="before" else 0,start=start,end=end,
-                     comparison_side=side,auto_timing=True,comparison_title_version=2)
+                     comparison_side=side,auto_timing=True,comparison_title_version=2,safe_area_version=1)
         clip["labels"].append(label)
     return clip
 

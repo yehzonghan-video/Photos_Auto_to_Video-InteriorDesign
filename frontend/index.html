@@ -18,11 +18,12 @@
   <details class="asset-section" open><summary>PNG 素材庫 · 點選加入全片時間軸</summary><div id="assetLibrary" class="asset-library"></div><p class="hint">自己的透明 PNG 請使用上方「上傳 PNG 素材」。圖層可跨照片，所有拖曳先存在此頁。</p></details>
   <div class="editor-grid">
     <section class="preview-panel">
-      <div class="preview-toolbar"><span id="mode">構圖與標籤編輯</span><span class="badge">9:16 · 1080p</span></div>
-      <div class="canvas-wrap"><canvas id="canvas" width="1080" height="1920" tabindex="0" aria-label="影片畫布；滑鼠或觸控拖曳標籤及圓形定位點"></canvas></div>
+      <div class="preview-toolbar"><span id="mode">構圖與標籤編輯</span><label class="safe-area-toggle"><input id="showSafeArea" type="checkbox" checked>顯示安全區</label><span class="badge">9:16 · 1080p</span></div>
+      <div class="canvas-wrap"><div class="canvas-stage"><canvas id="canvas" width="1080" height="1920" tabindex="0" aria-label="影片畫布；滑鼠或觸控拖曳標籤及圓形定位點"></canvas><div id="safeAreaGuide" class="safe-area-guide" aria-hidden="true" hidden></div></div></div>
       <div class="playback"><button id="play" class="primary">▶ 預覽影片</button><button id="edit">編輯目前照片</button><output id="clock">0.0 s</output></div>
       <input id="seek" type="range" min="0" max="20" value="0" step=".033333" aria-label="影片預覽時間軸">
       <p class="hint">拖曳文字移動標籤，拖曳圓點定位物件。預覽與輸出會隱藏選取框。</p>
+      <p class="hint">安全框只供構圖參考，不會輸出；自動施工前／後文字放在內框內，所有素材仍可自由拖出。</p>
       <div class="browser-export"><button id="browserExport">瀏覽器 MP4</button><span id="support" class="hint"></span></div>
       <progress id="recordProgress" value="0" max="1" hidden></progress>
       <div id="browserResult" hidden><a id="browserDownload" download="室內設計案例.mp4">下載瀏覽器 MP4</a><video id="browserVideo" controls playsinline></video></div>
@@ -101,5 +102,5 @@
     <p class="hint">紅線為播放指針。PNG 使用全片時間；文字隨照片順序移動。照片縮短會截短附屬標籤及超過影片結尾的 PNG。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="editor.js"></script>
 </body></html>

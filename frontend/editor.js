@@ -4,6 +4,7 @@ const W = 1080, H = 1920, ctx = $('canvas').getContext('2d');
 let photos = [], selectedPhoto = null, selectedLabel = null, imageCache = new Map(), tileCache = new Map();
 let assetMeta=new Map(),assetCache=new Map();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
+let showSafeArea=true;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
 const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
 const waiters=new Map();
@@ -45,7 +46,7 @@ function validProject() {
 }
 function persistDraft() {
   if(!draft.session)return;
-  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time})));storageFailed=false;}
+  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea})));storageFailed=false;}
   catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
 window.addEventListener('pagehide',persistDraft);
@@ -102,11 +103,13 @@ window.addEventListener('message', async event => {
   const generation = ++renderGeneration;
   try {
     const rows = args.project.photos;
+    StudioSafeArea.configure(args.project.safe_area);StudioSafeArea.mount($('safeAreaGuide'));
     if(receivedSession!==args.session) {
       try {const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');
         if(draft.restore(saved,args.session)){
           selectedPhoto=saved.selection?.selectedPhoto;selectedLabel=saved.selection?.selectedLabel;
           pngEditor.selected=saved.selection?.selectedOverlay||null;time=saved.selection?.time||0;
+          showSafeArea=saved.selection?.showSafeArea??true;$('showSafeArea').checked=showSafeArea;
           if(draft.pending&&args.response?.nonce!==draft.pending.nonce){draft.pending=null;draft.dirty=true;}
         }
       }catch(error){sessionStorage.removeItem(storageKey);}
@@ -254,7 +257,10 @@ function bounds(l) {
   return {width,height,x:Math.min(l.x*W,W-width),y:Math.min(l.y*H,H-height)};
 }
 function visibleEditLabel(p,l){return !isCompare()||StudioComparison.visibleTitle(p,l,time-photoOffset(p.id),comparisonEditor.view);}
+function updateSafeArea(){ $('safeAreaGuide').hidden=!showSafeArea||!editing||recording; }
+$('showSafeArea').onchange=()=>{showSafeArea=$('showSafeArea').checked;updateSafeArea();persistDraft();};
 function draw() {
+  updateSafeArea();
   const state=editing?{photo:photo(),local:time-photoOffset(photo()?.id)}:locate(time), p=state.photo;
   ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p){$('clock').textContent='0.0 / 0.0 s';$('seek').value=0;timeline.draw();return;}
   const image=imageCache.get(p.id);

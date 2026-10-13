@@ -19,6 +19,7 @@ from studio.overlays import load_asset,prepare_overlays
 from studio.rendering import label_tile,render_frame
 from studio.sync import consume_editor_event
 from studio.component import payload
+from studio.safe_area import SAFE_AREA
 
 
 def source(name,role,color,size=(108,192)):
@@ -27,6 +28,18 @@ def source(name,role,color,size=(108,192)):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_safe_area_default_titles_fit_and_manual_positions_are_unrestricted(self):
+        photos=[source('b','before','black'),source('a','after','black')];c=new_comparison(*photos)
+        box=SAFE_AREA['inner']
+        for label in c['labels']:
+            tile=label_tile(label);x=label['x']*1080;y=label['y']*1920
+            self.assertGreaterEqual(x,box['left']);self.assertGreaterEqual(y,box['top'])
+            self.assertLessEqual(x+tile.width,box['right']);self.assertLessEqual(y+tile.height,box['bottom'])
+            label.update(x=0,y=0)
+        result=validate_comparisons([c],photos)[0]
+        self.assertTrue(all(l['x']==l['y']==0 and l['safe_area_version']==1 for l in result['labels']))
+        self.assertEqual(payload(photos,comparisons=[c],template='compare')['safe_area'],SAFE_AREA)
+
     def test_plain_titles_same_position_and_exact_change_boundary(self):
         photos=[source('b','before','red'),source('a','after','blue')]
         c=new_comparison(*photos);before,after=c['labels']
@@ -73,6 +86,8 @@ class ComparisonTests(unittest.TestCase):
             for i,index in enumerate(indices,1):
                 with Image.open(Path(folder)/f'{i:02d}.png') as image:
                     self.assertEqual(image.size,(1080,1920))
+                    for xy in ((111,400),(48,400),(500,190),(500,1716)):
+                        self.assertLess(max(image.convert('RGB').getpixel(xy)),5,'安全區提示不能出現在實際MP4')
                     brightness.append(ImageStat.Stat(image.convert('L').crop((60,145,350,300))).mean[0])
                     base=comparison_frame(c,prepare_comparison(c,photos),index/30)
                     expected=render_frame(base,c['labels'],[label_tile(l) for l in c['labels']],index/30)

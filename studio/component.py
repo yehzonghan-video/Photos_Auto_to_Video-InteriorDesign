@@ -5,6 +5,7 @@ import streamlit.components.v1 as components
 
 from .rendering import data_url, label_tile, template_config
 from .photo_processing import preview_data
+from .safe_area import SAFE_AREA
 
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
@@ -48,6 +49,6 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
                 image=label_tile(label);tile=dict(src=data_url(image),width=image.width,height=image.height,style=style)
             row["tiles"][label["id"]]=tile
         cached["tiles"]=dict(row["tiles"]);clips.append(row)
-    return dict(photos=rows, template=template_config(template), template_id=template, schema_version=4,
+    return dict(photos=rows, template=template_config(template), template_id=template, schema_version=4, safe_area=SAFE_AREA,
                 assets=[asset.metadata() for asset in (assets or {}).values()], overlays=overlays or [],
                 comparisons=clips, comparison_overlays=comparison_overlays or [])

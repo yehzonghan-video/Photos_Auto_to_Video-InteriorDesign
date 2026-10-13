@@ -67,6 +67,8 @@ def validate_label(raw, duration):
         result.update(comparison_side=raw["comparison_side"], auto_timing=bool(raw.get("auto_timing",False)))
         if raw.get("comparison_title_version") in (1,2):
             result["comparison_title_version"] = int(raw["comparison_title_version"])
+        if raw.get("safe_area_version") == 1:
+            result["safe_area_version"] = 1
         result["exit"] = number(raw.get("exit",0),0,min(3,end-start))
     if isinstance(raw.get("origin_label_id"),str):
         result["origin_label_id"]=raw["origin_label_id"][:64]

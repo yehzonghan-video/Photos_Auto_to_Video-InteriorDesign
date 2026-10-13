@@ -1,0 +1,7 @@
+{
+  "width": 1080,
+  "height": 1920,
+  "outer": {"left": 48, "top": 95, "right": 1032, "bottom": 1825, "stroke": 15},
+  "frame": {"left": 111, "top": 190, "right": 969, "bottom": 1730, "stroke": 14},
+  "inner": {"left": 125, "top": 205, "right": 955, "bottom": 1716}
+}

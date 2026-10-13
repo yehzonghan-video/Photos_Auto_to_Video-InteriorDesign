@@ -12,6 +12,7 @@ const StudioAI=require('../frontend/ai-import.js');
 const StudioTimeline=require('../frontend/timeline-model.js');
 const StudioOverlay=require('../frontend/overlay-model.js');
 const StudioComparison=require('../frontend/comparison-model.js');
+const StudioSafeArea=require('../frontend/safe-area.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
@@ -30,7 +31,7 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,crypto:webcrypto,console,
+    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
@@ -45,6 +46,27 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,get draws(){return draws;}};
 }
+test('安全框開關與預覽隱藏只處理DOM；標題可拖出內框、rerun和重建保留人工位置',async()=>{
+  const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
+  const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));
+  const project={photos:rows,comparisons:[c],template_id:'compare'},get=id=>env.elements.get(id);
+  await env.receive({project});assert.equal(get('safeAreaGuide').hidden,false);
+  assert.ok(get('safeAreaGuide').innerHTML.includes('viewBox="0 0 1080 1920"'));
+  for(let i=0;i<100;i++){get('showSafeArea').checked=false;get('showSafeArea').onchange();get('showSafeArea').checked=true;get('showSafeArea').onchange();}
+  assert.equal(vm.runInContext('draft.dirty',env.context),false,'構圖提示不改影片資料');
+  get('showSafeArea').checked=false;get('showSafeArea').onchange();assert.equal(get('safeAreaGuide').hidden,true);
+  const b=vm.runInContext('bounds(label())',env.context);
+  get('canvas').dispatch('pointerdown',{clientX:b.x+30,clientY:b.y+30});
+  get('canvas').dispatch('pointermove',{clientX:30,clientY:30});get('canvas').dispatch('pointerup');
+  assert.equal(vm.runInContext('photo().labels[0].x',env.context),0);assert.equal(vm.runInContext('photo().labels[1].y',env.context),0);
+  assert.equal(env.changes().length,0);await env.receive({project,revision:2});
+  assert.equal(vm.runInContext('photo().labels[0].x',env.context),0);
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.equal(rebuilt.elements.get('showSafeArea').checked,false);assert.equal(vm.runInContext('photo().labels[0].x',rebuilt.context),0);
+  get('showSafeArea').checked=true;get('showSafeArea').onchange();get('seek').value='0';get('seek').oninput();
+  assert.equal(get('safeAreaGuide').hidden,true,'動畫預覽不顯示安全框');get('edit').onclick();assert.equal(get('safeAreaGuide').hidden,false);
+  assert.equal(env.changes().length,0);
+});
 test('前後標題拖曳共用位置、選取自動跳至對應時間、舊草稿升級且rerun不送Python',async()=>{
   const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
   const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));

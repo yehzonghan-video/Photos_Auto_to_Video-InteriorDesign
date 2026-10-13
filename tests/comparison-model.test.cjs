@@ -1,7 +1,19 @@
 const test=require('node:test'),assert=require('node:assert/strict'),{execFileSync}=require('node:child_process');
 const C=require('../frontend/comparison-model.js'),T=require('../frontend/timeline-model.js');
 const A=require('../frontend/animation.js');
+const SafeArea=require('../frontend/safe-area.js'),safeConfig=require('../frontend/safe-area.json');
 let serial=0;const id=()=>String(++serial),photos=[{id:'b',role:'before',labels:[],duration:4},{id:'a',role:'after',labels:[],duration:4}];
+test('安全區取自共用JSON，自動標題預設在內框；舊預設升級但人工框外位置保留',()=>{
+  const position=SafeArea.titlePosition(),c=C.make(...photos,id);
+  assert.deepEqual(position,{x:125/1080,y:205/1920});
+  const python=execFileSync('.venv/Scripts/python.exe',['-c','import json;from studio.safe_area import title_position;print(json.dumps(title_position()))'],{encoding:'utf8'});
+  assert.deepEqual(position,JSON.parse(python));
+  for(const l of c.labels){assert.equal(l.x*1080,safeConfig.inner.left);assert.equal(l.y*1920,safeConfig.inner.top);}
+  for(const l of c.labels){delete l.safe_area_version;l.x=.06;l.y=.08;}
+  assert.equal(C.upgradeTitles(c),true);assert.equal(c.labels[0].x,position.x);assert.equal(c.labels[1].y,position.y);
+  for(const l of c.labels){delete l.safe_area_version;l.x=0;l.y=0;}
+  C.upgradeTitles(c);assert.equal(c.labels[0].x,0);assert.equal(c.labels[1].y,0);assert.equal(C.upgradeTitles(c),false);
+});
 test('順序播放標題共用位置、純文字、在轉場起點替換且逐幀不重疊',()=>{
   for(const mode of ['switch','reveal'])for(const transition of ['cut','fade','slide']){
     const c=C.make(...photos,id);c.mode=mode;c.transition=transition;

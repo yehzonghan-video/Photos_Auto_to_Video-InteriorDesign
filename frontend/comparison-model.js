@@ -1,6 +1,7 @@
 // 與 Python 相同的複合片段模型與逐幀姿態，開始時間由現有時間軸推導。
 (function(root){
   const Photo=typeof module!=='undefined'?require('./photo-layout.js'):root.StudioPhoto;
+  const SafeArea=typeof module!=='undefined'?require('./safe-area.js'):root.StudioSafeArea;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),snap=v=>Math.round(v*30)/30;
   const crop=p=>({fit:p.fit||'contain',zoom:p.zoom??1,crop_x:p.crop_x??.5,crop_y:p.crop_y??.5});
   function titleTimes(c){for(const l of c.labels){if(!l.auto_timing||!l.comparison_side)continue;
@@ -15,11 +16,18 @@
     const titles=c.labels.filter(l=>l.comparison_side),base=source||titles.find(l=>l.comparison_side==='before')||titles[0];
     if(base)for(const l of titles){l.x=base.x;l.y=base.y;}}
   function upgradeTitles(c){let changed=false;
-    for(const l of c.labels){if(!l.comparison_side||l.comparison_title_version===2)continue;
-      const after=l.comparison_side==='after',length=Math.max(0,l.end-l.start);
-      Object.assign(l,{font_size:Math.max(72,l.font_size),opacity:0,radius:0,line:false,
-        animation:after?'fade':'none',enter:after?Math.min(.35,length):0,
-        exit:after?0:Math.min(.35,length),comparison_title_version:2});changed=true;}
+    for(const l of c.labels){if(!l.comparison_side)continue;
+      if(l.comparison_title_version!==2){
+        const after=l.comparison_side==='after',length=Math.max(0,l.end-l.start);
+        Object.assign(l,{font_size:Math.max(72,l.font_size),opacity:0,radius:0,line:false,
+          animation:after?'fade':'none',enter:after?Math.min(.35,length):0,
+          exit:after?0:Math.min(.35,length),comparison_title_version:2});changed=true;}
+      if(l.safe_area_version!==1){
+        // 僅移動舊的自動預設座標；人工拖曳過的位置保留，之後也不設安全框限制。
+        const oldX=c.mode==='split'&&l.comparison_side==='after' ? .57 : .06;
+        if(Math.abs(l.x-oldX)<1e-7&&Math.abs(l.y-.08)<1e-7){
+          const position=SafeArea.titlePosition();l.x=c.mode==='split'&&l.comparison_side==='after'?oldX:position.x;l.y=position.y;}
+        l.safe_area_version=1;changed=true;}}
     if(changed)titleTimes(c);return changed;}
   function visibleTitle(c,l,t,view='combined'){
     if(!l.comparison_side)return true;
@@ -28,9 +36,9 @@
   function make(before,after,id){const c={id:id(),type:'comparison',before_id:before.id,after_id:after.id,name:`${before.name||'施工前'} → ${after.name||'施工後'}`.slice(0,80),
     mode:'switch',transition:'fade',direction:'ltr',duration:5,before_time:2,transition_time:1,split:.5,show_line:true,
     before_crop:crop(before),after_crop:crop(after),labels:[]};
-    for(const [side,text] of [['before','施工前'],['after','施工後']])c.labels.push({id:id(),text,x:.06,y:.08,
+    for(const [side,text] of [['before','施工前'],['after','施工後']])c.labels.push({id:id(),text,...SafeArea.titlePosition(),
       point_x:.5,point_y:.5,font_size:72,color:'#ffffff',background:'#222822',opacity:0,radius:0,line:false,
-      animation:side==='after'?'fade':'none',start:0,end:5,enter:0,exit:0,layer:10,comparison_side:side,auto_timing:true,comparison_title_version:2});
+      animation:side==='after'?'fade':'none',start:0,end:5,enter:0,exit:0,layer:10,comparison_side:side,auto_timing:true,comparison_title_version:2,safe_area_version:1});
     titleTimes(c);return c;}
   function resize(c,value){const length=clamp(snap(value),1,20),ratio=length/c.duration;
     c.before_time*=ratio;c.transition_time*=ratio;c.duration=length;
