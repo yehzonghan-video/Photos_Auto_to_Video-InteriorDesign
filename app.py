@@ -7,11 +7,12 @@ import streamlit as st
 
 from studio.component import editor, payload
 from studio.export import capabilities, export_video
-from studio.models import MAX_PHOTOS, MAX_SESSION_BYTES, load_photo
+from studio.models import MAX_PHOTOS, load_photo
 from studio.sync import consume_editor_event
 from studio.rendering import font_path, template_config
 from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
+from studio.photo_processing import fit_session
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 st.markdown("""<style>
@@ -35,6 +36,10 @@ for key, value in defaults.items():
         st.session_state[key] = value
 if "overlay_assets" not in st.session_state:
     st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
+if st.session_state.get("photo_preview_version") != 1:
+    st.session_state.photo_preview_version = 1
+    st.session_state.project_payload = None
+    st.session_state.editor_assets = {}
 
 # 升級元件協定時保留照片，只清除舊版素材 payload 與舊 widget 事件。
 if st.session_state.get("editor_protocol") != 3:
@@ -58,10 +63,13 @@ def invalidate():
 def check_capacity(photos):
     if len(photos) > MAX_PHOTOS:
         raise ValueError("每個工作階段最多 12 張照片。")
-    if sum(len(p.original) for p in photos) > MAX_SESSION_BYTES:
-        raise ValueError("照片總容量不可超過 80 MB，請減少照片或縮小檔案。")
-    if sum(p.width * p.height for p in photos) > 60_000_000:
-        raise ValueError("照片總畫素不可超過 6000 萬，請減少照片或縮小尺寸。")
+    return fit_session(photos)
+
+
+def optimization_notice(photos, previous):
+    original = {p.id: p.original for p in previous}
+    return " ".join(f"{p.name}：{p.optimization_note}" for p in photos
+                    if p.optimization_note and p.original is not original.get(p.id))
 
 
 with st.sidebar:
@@ -123,21 +131,26 @@ st.subheader("01　準備案例照片")
 upload_col, demo_col = st.columns([3, 1])
 with upload_col:
     uploaded = st.file_uploader("加入照片（可一次多張）", type=["jpg", "jpeg", "png", "webp"],
-                                accept_multiple_files=True, key=f"uploads_{st.session_state.uploader_epoch}")
+                                accept_multiple_files=True, max_upload_size=200,
+                                key=f"uploads_{st.session_state.uploader_epoch}")
+    st.caption("一般照片保留原檔；大照片或整批負荷較高時自動等比例最佳化，不會因總畫素超標而擋下。")
     if st.button("加入已選照片", disabled=not uploaded, type="primary"):
         try:
-            new = [load_photo(item.name, item.getvalue()) for item in uploaded]
-            proposed = st.session_state.photos + new
-            check_capacity(proposed)
+            if len(st.session_state.photos) + len(uploaded) > MAX_PHOTOS:
+                raise ValueError("每個工作階段最多 12 張照片。")
+            with st.spinner("正在準備照片；大照片會自動最佳化…"):
+                new = [load_photo(item.name, item.getvalue()) for item in uploaded]
+                proposed = check_capacity(st.session_state.photos + new)
             if sum(p.duration for p in proposed) > 120:
                 raise ValueError("影片總長最多 120 秒，請先縮短現有照片秒數。")
+            note = optimization_notice(proposed, st.session_state.photos)
             st.session_state.photos = proposed
             st.session_state.uploader_epoch += 1
             invalidate()
-            st.session_state.notice = f"已加入 {len(new)} 張照片。"
+            st.session_state.notice = f"已加入 {len(new)} 張照片。 " + note
             st.rerun()
-        except (ValueError, OSError) as exc:
-            st.error(str(exc))
+        except (ValueError, OSError, MemoryError) as exc:
+            st.error(str(exc) or "記憶體不足，無法完成這批照片的自動最佳化，請稍後重試。")
 with demo_col:
     st.caption("想先試操作？")
     if st.button("載入 5 張測試示意圖", use_container_width=True, disabled=bool(st.session_state.photos)):
@@ -146,7 +159,7 @@ with demo_col:
         invalidate()
         st.session_state.notice = "已載入自行繪製的室內空間示意圖，供測試操作與輸出；並非真實案例或 AI 辨識。"
         st.rerun()
-    st.caption("最多 12 張 · 每張 15 MB\n\nJPG / PNG / WEBP")
+    st.caption("最多 12 張 · 大照片自動最佳化\n\nJPG / PNG / WEBP")
 
 photos = st.session_state.photos
 if not photos:
@@ -156,7 +169,8 @@ if not photos:
 with st.expander("替換單張照片", expanded=False):
     target_id = st.selectbox("要替換的照片", [p.id for p in photos],
                             format_func=lambda ident: next(f"{i+1} · {p.name}" for i,p in enumerate(photos) if p.id == ident))
-    replacement = st.file_uploader("選擇替換照片", type=["jpg", "jpeg", "png", "webp"], key=f"replacement_{st.session_state.uploader_epoch}")
+    replacement = st.file_uploader("選擇替換照片", type=["jpg", "jpeg", "png", "webp"], max_upload_size=200,
+                                   key=f"replacement_{st.session_state.uploader_epoch}")
     st.caption("替換後保留此張照片的標籤與構圖設定，請重新確認定位點。")
     if st.button("套用替換照片", disabled=replacement is None):
         try:
@@ -167,13 +181,15 @@ with st.expander("替換單張照片", expanded=False):
             fresh.fit = getattr(target, "fit", "contain")
             fresh.labels = target.labels
             proposed = [fresh if p.id == target_id else p for p in photos]
-            check_capacity(proposed)
+            proposed = check_capacity(proposed)
+            note = optimization_notice(proposed, photos)
             st.session_state.photos = proposed
             st.session_state.uploader_epoch += 1
             invalidate()
+            st.session_state.notice = "已替換照片。 " + note
             st.rerun()
-        except (ValueError, OSError) as exc:
-            st.error(str(exc))
+        except (ValueError, OSError, MemoryError) as exc:
+            st.error(str(exc) or "記憶體不足，無法完成此照片的自動最佳化，請稍後重試。")
 
 with st.expander("上傳 PNG 素材（透明 LOGO、箭頭、價格框）", expanded=False):
     st.caption("素材僅保存在目前工作階段；單張最多5 MB／800萬畫素。上傳後到編輯器的 PNG 素材庫點選加入。請使用有權使用的素材。")

@@ -1,6 +1,6 @@
 # 第一階段驗證記錄
 
-第三階段最新的 33 項 Python／22 項 Node、透明 PNG 真實 MP4、時間軸與實際瀏覽器互動紀錄請見 [TIMELINE_PNG.md](TIMELINE_PNG.md)。第二階段 Gemini 的真實 API 結果、Mock 測試範圍與人工待測清單請見 [AI.md](AI.md)。以下第一階段紀錄為歷史驗證，並非再次執行所有瀏覽器操作。
+照片最佳化更新後的40項 Python／22項 Node與大照片實測請見 [PHOTO_UPLOAD.md](PHOTO_UPLOAD.md)。第三階段的透明 PNG 真實 MP4、時間軸與實際瀏覽器互動紀錄請見 [TIMELINE_PNG.md](TIMELINE_PNG.md)。第二階段 Gemini 的真實 API 結果、Mock 測試範圍與人工待測清單請見 [AI.md](AI.md)。以下第一階段紀錄為歷史驗證，並非再次執行所有瀏覽器操作。
 
 最新的標籤編輯效能／批次同步更新：15 項 Python、11 項 Node 測試，以及實際瀏覽器新增、跨照片／rerun 草稿保存、拖曳及 Full HD 輸出記錄，詳見 [EDITOR_SYNC.md](EDITOR_SYNC.md)。以下保留原第一階段的歷史驗證。
 

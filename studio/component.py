@@ -1,11 +1,10 @@
 from pathlib import Path
 import base64
 import hashlib
-from io import BytesIO
-from PIL import Image
 import streamlit.components.v1 as components
 
 from .rendering import data_url, label_tile, template_config
+from .photo_processing import preview_data
 
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
@@ -20,12 +19,10 @@ def payload(photos, cache=None, assets=None, overlays=None):
     for photo in photos:
         row = photo.metadata()
         photo_assets = cache.setdefault(photo.id, {"tiles": {}})
-        # 瀏覽器收到原始檔案，不因預覽重新壓縮；Canvas 自動套用 EXIF 方向。
+        # 編輯器只收較小預覽；原始／最佳化工作副本保留給 AI 與 FFmpeg。
         digest = hashlib.sha256(photo.original).hexdigest()
         if photo_assets.get("digest") != digest:
-            with Image.open(BytesIO(photo.original)) as image:
-                mime = Image.MIME[image.format]
-            photo_assets["image"] = f"data:{mime};base64," + base64.b64encode(photo.original).decode("ascii")
+            photo_assets["image"] = "data:image/jpeg;base64," + base64.b64encode(preview_data(photo)).decode("ascii")
             photo_assets["digest"] = digest
         row["image"] = photo_assets["image"]
         row["content_hash"] = digest

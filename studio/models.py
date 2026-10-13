@@ -1,17 +1,16 @@
 """工作階段資料與所有前端輸入的驗證；不包含檔案持久化。"""
 from dataclasses import dataclass, field
-from io import BytesIO
 import math
 import re
 import uuid
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from .photo_processing import MAX_INPUT_BYTES, read_upload
 
 MAX_PHOTOS = 12
 MAX_LABELS = 12
 MAX_TOTAL_SECONDS = 120
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024
-MAX_SESSION_BYTES = 80 * 1024 * 1024
+MAX_UPLOAD_BYTES = MAX_INPUT_BYTES
+MAX_SESSION_BYTES = 80 * 1024 * 1024  # 保留相容名稱；超標時自動最佳化，不直接拒絕。
 ANIMATIONS = ("left", "right", "up", "down", "fade", "scale", "none")
 
 
@@ -79,6 +78,7 @@ class Photo:
     crop_y: float = .5
     fit: str = "contain"
     labels: list = field(default_factory=list)
+    optimization_note: str = ""
 
     def metadata(self):
         return {key: getattr(self, key) for key in
@@ -86,22 +86,8 @@ class Photo:
 
 
 def load_photo(name, data):
-    if not data or len(data) > MAX_UPLOAD_BYTES:
-        raise ValueError("照片不能為空，且單張不得超過 15 MB。")
-    try:
-        with Image.open(BytesIO(data)) as image:
-            if image.format not in ("JPEG", "PNG", "WEBP"):
-                raise ValueError("僅接受 JPG、JPEG、PNG、WEBP 照片。")
-            if image.width * image.height > 32_000_000:
-                raise ValueError("照片不可超過 3200 萬畫素，請先縮小尺寸。")
-            if getattr(image, "n_frames", 1) != 1:
-                raise ValueError("請上傳靜態照片，不支援動畫圖片。")
-            image.load()
-            image = ImageOps.exif_transpose(image)
-            w, h = image.size
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise ValueError("無法讀取此圖片，請確認檔案未損壞。") from exc
-    return Photo(uuid.uuid4().hex, str(name)[:180], data, w, h)
+    working, w, h, note = read_upload(data)
+    return Photo(uuid.uuid4().hex, str(name)[:180], working, w, h, optimization_note=note)
 
 
 def update_project(photos, rows):
