@@ -13,12 +13,12 @@ from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 from studio.photo_processing import fit_session
 from studio.access import require_password, logout
 from studio.cover import new_cover, DURATION
-from studio.music import new_music, load_music
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
     component_api, export_api, sync_api = video_modules()
+    from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
 except (RuntimeError, ImportError, OSError) as exc:
     st.error(str(exc))
     st.caption('重新啟動會清除目前工作階段的照片與草稿；請先下載仍可取得的成果。')
@@ -256,8 +256,8 @@ with st.expander("上傳 PNG 素材（透明 LOGO、箭頭、價格框）", expa
         st.warning(warning)
 
 with st.expander('背景音樂 BGM（預設1秒淡出）', expanded=False):
-    st.caption('請上傳有權使用的音樂；只保存在目前工作階段。單檔20 MB，最長保留前120秒。音量與淡出在下方編輯器設定。')
-    music_file=st.file_uploader('選擇BGM',type=['mp3','wav','m4a','ogg','flac'],max_upload_size=20,
+    st.caption(f'請上傳有權使用的音樂；只保存在目前工作階段。單檔最多{MAX_MUSIC_UPLOAD_MB} MB，較長音樂自動截取前120秒。音量與淡出在下方編輯器設定。')
+    music_file=st.file_uploader('選擇BGM',type=['mp3','wav','m4a','ogg','flac'],max_upload_size=MAX_MUSIC_UPLOAD_MB,
                               key=f'music_upload_{st.session_state.music_epoch}')
     add_music,remove_music=st.columns(2)
     music_locked=st.session_state.editor_busy or st.session_state.pending_export is not None

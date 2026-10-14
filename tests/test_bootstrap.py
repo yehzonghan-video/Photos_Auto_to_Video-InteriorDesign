@@ -4,7 +4,7 @@ import inspect
 import unittest
 from unittest.mock import patch
 
-from studio import component, export, sync
+from studio import component, export, sync, music
 from studio.bootstrap import video_modules
 from tests.app_helpers import authenticated_app
 
@@ -43,6 +43,12 @@ class BootstrapTests(unittest.TestCase):
         with patch.object(component,'payload',old_payload),patch('studio.bootstrap.importlib.reload',side_effect=lambda module:module):
             with self.assertRaisesRegex(RuntimeError,'部署檔案版本不一致'):
                 video_modules()
+
+    def test_old_twenty_mb_music_module_is_reloaded(self):
+        with patch.object(music,'BGM_API_VERSION',0),patch.object(music,'MAX_MUSIC_BYTES',20*1024*1024):
+            video_modules()
+            self.assertEqual(music.MAX_MUSIC_UPLOAD_MB,200)
+            self.assertEqual(music.MAX_MUSIC_BYTES,200*1024*1024)
 
     def test_live_streamlit_old_payload_preserves_photos_labels_and_music(self):
         app=authenticated_app()

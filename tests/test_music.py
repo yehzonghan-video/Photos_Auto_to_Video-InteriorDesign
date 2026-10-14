@@ -10,7 +10,7 @@ import unittest
 import wave
 from PIL import Image
 
-from studio.music import load_music,new_music,validate_music,gain_at
+from studio.music import load_music,new_music,validate_music,gain_at,MAX_MUSIC_UPLOAD_MB
 from studio.export import export_video,ffmpeg_path
 from studio.models import load_photo
 from studio.cover import new_cover
@@ -45,6 +45,27 @@ def rms(pcm,start,end):
 
 
 class MusicTests(unittest.TestCase):
+    def test_large_wav_over_twenty_mb_is_trimmed_by_duration(self):
+        # 真實24 MB、125秒WAV；確認上傳放寬且只保留前120秒音訊。
+        source=BytesIO()
+        with wave.open(source,'wb') as wav:
+            wav.setnchannels(2);wav.setsampwidth(2);wav.setframerate(48000)
+            wav.writeframes(b'\0'*(125*48000*4))
+        data=source.getvalue();self.assertGreater(len(data),20*1024*1024)
+        asset=load_music('較大的音樂.wav',data)
+        self.assertEqual(asset.duration,120);self.assertTrue(asset.truncated)
+        with wave.open(BytesIO(asset.data),'rb') as wav:
+            self.assertEqual((wav.getnchannels(),wav.getsampwidth(),wav.getframerate()),(2,2,44100))
+            self.assertEqual(wav.getnframes(),120*44100)
+
+    def test_streamlit_uploader_accepts_larger_music(self):
+        app=authenticated_app()
+        next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
+        self.assertFalse(app.exception)
+        uploader=next(element for element in app.get('file_uploader') if element.proto.label=='選擇BGM')
+        self.assertEqual(uploader.proto.max_upload_size_mb,MAX_MUSIC_UPLOAD_MB)
+        self.assertEqual(MAX_MUSIC_UPLOAD_MB,200)
+
     def test_upload_normalized_stereo_and_bad_input(self):
         asset=load_music('自己的測試.wav',tone())
         self.assertAlmostEqual(asset.duration,.5)

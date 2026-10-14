@@ -10,7 +10,10 @@ import wave
 
 from .models import number, MAX_TOTAL_SECONDS
 
-MAX_MUSIC_BYTES = 20 * 1024 * 1024
+# 與照片上傳的200 MB上限一致；解碼仍只保留影片可使用的前120秒。
+MAX_MUSIC_UPLOAD_MB = 200
+MAX_MUSIC_BYTES = MAX_MUSIC_UPLOAD_MB * 1024 * 1024
+BGM_API_VERSION = 1
 FORMATS = {'mp3':'mp3', 'wav':'wav', 'm4a':'mov', 'ogg':'ogg', 'flac':'flac'}
 
 
@@ -71,8 +74,10 @@ def audio_filter(settings, source_duration, video_duration):
 
 def load_music(name, data):
     extension = Path(str(name)).suffix.lower().lstrip('.')
-    if extension not in FORMATS or not isinstance(data, bytes) or not 0 < len(data) <= MAX_MUSIC_BYTES:
-        raise ValueError('BGM請使用MP3、WAV、M4A、OGG或FLAC，單檔最多20 MB。')
+    if extension not in FORMATS or not isinstance(data, bytes) or not data:
+        raise ValueError('BGM請使用有效的MP3、WAV、M4A、OGG或FLAC音檔。')
+    if len(data) > MAX_MUSIC_BYTES:
+        raise ValueError(f'BGM單檔最多{MAX_MUSIC_UPLOAD_MB} MB，請先用音訊工具截取需要的片段後再上傳。')
     from .export import ffmpeg_path
     with tempfile.TemporaryDirectory(prefix='interior-music-') as folder:
         source = Path(folder)/('input.'+extension)

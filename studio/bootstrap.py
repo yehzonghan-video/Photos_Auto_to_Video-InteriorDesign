@@ -24,7 +24,7 @@ def video_modules():
     """不清除Session State；避免新app.py呼叫記憶體中的舊payload／export。"""
     with _LOAD_LOCK:
         specs = [('studio.component', 'payload', True), ('studio.export', 'export_video', True),
-                 ('studio.sync', 'consume_editor_event', False)]
+                 ('studio.sync', 'consume_editor_event', False), ('studio.music', 'load_music', False)]
         modules = [importlib.import_module(name) for name, _, _ in specs]
         mismatches = [name for module, (name, function, music_args) in zip(modules, specs)
                       if not _compatible(module, function, music_args)]
@@ -37,4 +37,4 @@ def video_modules():
                for module, (_, function, music_args) in zip(modules, specs)):
             LOGGER.error('APP_RUNTIME_RELOAD deployment_files_incompatible expected_bgm_api=%s', BGM_API_VERSION)
             raise RuntimeError('部署檔案版本不一致，請等候GitHub更新完成後，在Manage app選Reboot app重新載入。')
-        return tuple(modules)
+        return tuple(modules[:3])
