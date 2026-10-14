@@ -20,6 +20,7 @@ from studio.rendering import label_tile,render_frame
 from studio.sync import consume_editor_event
 from studio.component import payload
 from studio.safe_area import SAFE_AREA
+from tests.app_helpers import authenticated_app
 
 
 def source(name,role,color,size=(108,192)):
@@ -194,7 +195,7 @@ class ComparisonTests(unittest.TestCase):
                                     '文字左上內距應保留底圖，不能有背景框')
 
     def test_streamlit_template_upload_regions_session_and_real_export(self):
-        app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=90).run()
+        app=authenticated_app()
         next(s for s in app.selectbox if s.label=='影片模板').select('compare').run()
         labels=[u.proto.label for u in app.get('file_uploader')]
         self.assertIn('施工前照片（可一次多張）',labels);self.assertIn('施工後照片（可一次多張）',labels)
@@ -214,7 +215,7 @@ class ComparisonTests(unittest.TestCase):
 
     def test_mock_upload_widgets_use_real_photo_bytes_and_before_after_batches(self):
         import streamlit as st
-        app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=90).run()
+        app=authenticated_app()
         next(s for s in app.selectbox if s.label=='影片模板').select('compare').run()
         original=st.file_uploader
         data=source('sample','general','red').original

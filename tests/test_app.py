@@ -4,11 +4,12 @@ import copy
 from pathlib import Path
 from streamlit.testing.v1 import AppTest
 from studio.models import new_label
+from tests.app_helpers import authenticated_app
 
 
 class AppTests(unittest.TestCase):
     def test_demo_session_export_and_clear(self):
-        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=90).run()
+        app = authenticated_app()
         self.assertFalse(app.exception)
         next(b for b in app.button if b.label == "載入 5 張測試示意圖").click().run()
         self.assertFalse(app.exception)

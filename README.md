@@ -2,7 +2,7 @@
 
 GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-video/Photos_Auto_to_Video-InteriorDesign)
 
-可操作的 Streamlit 網頁：照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層及 FFmpeg H.264 輸出。沒有金鑰時仍能手動製片。時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
+可操作的 Streamlit 網頁：共用密碼入口、照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層及 FFmpeg H.264 輸出。登入後，沒有 Gemini 金鑰仍能手動製片。時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
 
 目前已完成第四階段「裝修前後對比」。先選擇裝修介紹或前後對比模板：**上傳照片 → 配對（對比模板）／選用 AI 標籤 → 加入 PNG → 編輯畫面與時間軸 → 預覽 → 輸出 MP4**。前後配對、三種模式及驗證見 [第四階段說明](docs/COMPARISON.md)。
 
@@ -10,6 +10,7 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 
 | 功能 | 已實作內容 |
 | --- | --- |
+| 共用密碼 | Secrets／環境變數設定、未登入阻擋製片、登出清除工作資料、錯誤輸入冷卻 |
 | 照片管理 | JPG／JPEG／PNG／WEBP、多張上傳、縮圖排序、刪除、替換、播放秒數 |
 | 大照片處理 | 原檔優先、前端縮小預覽；單張／整批負荷超標時自動等比例最佳化，不再以6000萬總畫素拒絕 |
 | 完整照片顯示 | 等比例置中、橫式照片上下留黑；也可選擇裁切、縮放及調整構圖 |
@@ -22,7 +23,7 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 | 裝修前後對比 | 雙上傳區、自動／手動配對、重用照片、切換／分割／真遮罩揭露、兩側獨立裁切、共用時間軸與輸出 |
 | 影片輸出 | FFmpeg H.264 MP4、9:16、1080×1920／30 FPS，另有 720p、360p 選項 |
 
-目前提供「裝修項目介紹」及「裝修前後對比」兩套模板，可用 PNG 放入自己的 LOGO。案例特色模板、背景音樂與專用品牌結尾尚未實作。沒有資料庫、登入或永久專案儲存。
+目前提供「裝修項目介紹」及「裝修前後對比」兩套模板，可用 PNG 放入自己的 LOGO。案例特色模板、背景音樂與專用品牌結尾尚未實作。已加入共用密碼入口；沒有資料庫、個別帳號或永久專案儲存。
 
 完整測試紀錄：[第四階段對比](docs/COMPARISON.md)、[第三階段時間軸／PNG](docs/TIMELINE_PNG.md)、[AI 與第二階段測試](docs/AI.md)、[編輯器同步測試](docs/EDITOR_SYNC.md)、[第一階段歷史驗證](docs/VALIDATION.md)。
 
@@ -37,11 +38,23 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-瀏覽器開啟 `http://localhost:8501`。上述命令直接使用虛擬環境內的 Python，不需要另外啟用環境。手動製片不需要登入或 API 金鑰；只有 AI 分析需要 Gemini 金鑰。若 `py` 找不到，安裝 Python 3.12 或將建立虛擬環境的命令改成可用的 Python 完整路徑。
+瀏覽器開啟 `http://localhost:8501`。上述命令直接使用虛擬環境內的 Python，不需要另外啟用環境。請先設定共用密碼，登入後即可手動製片；只有 AI 分析需要 Gemini 金鑰。若 `py` 找不到，安裝 Python 3.12 或將建立虛擬環境的命令改成可用的 Python 完整路徑。
 
 本次開發已建立 `.venv` 時，可直接使用 `start.ps1`。關閉終端或按 Ctrl+C 停止服務。
 
 已安裝舊版專案時，先重新執行 `pip install -r requirements.txt`，再重啟 Streamlit，才能載入新增的 Google SDK。
+
+## 共用密碼設定
+
+本機在 `.streamlit/secrets.toml`，Cloud 在 **Settings → Secrets** 新增：
+
+```toml
+APP_PASSWORD = "YOUR_PASSWORD_HERE"
+```
+
+把範例換成自己的共用密碼；原有 Gemini 設定請保留。未設定或保留範例時，工作室不開放上傳、AI與輸出。也支援伺服器 `APP_PASSWORD` 環境變數，Secrets 優先。
+
+進入頁面輸入密碼，正常編輯不需重複登入；側邊「登出」會清除本工作階段的照片與影片，請先下載成果。修改密碼後需重新驗證。設定與測試詳見 [共用密碼說明](docs/ACCESS.md)。
 
 ## Gemini 設定
 
@@ -172,12 +185,14 @@ node --test tests/*.test.cjs
 
 仍需人工測試真實客戶照片辨識準確率、實體觸控、其他瀏覽器、Cloud API 設定與多人負載。12 張完整實際 API 長佇列與真實 429 等候流程未以 Google 呼叫測試，避免刻意耗盡額度。
 
+共用密碼更新：57項Python、35項Node通過，新增真實AppTest表單的登入／登出、錯誤密碼、Secret／環境變數、冷卻及密碼輪替測試；既有影片回歸先登入再操作，實際MP4輸出正常。Cloud Secrets及實體瀏覽器仍需設定後確認，詳見 [密碼驗證紀錄](docs/ACCESS.md)。
+
 ## Streamlit Community Cloud
 
 1. 將原始碼推送到自己的 GitHub repository，**不要提交 `.venv`、`.tmp`、`.tools`、`.streamlit/secrets.toml` 或使用者素材**。
 2. 在 Community Cloud 建立 app，入口 `app.py`，Python 選 3.12。
 3. Cloud 讀取 `requirements.txt`；`packages.txt` 安裝 `ffmpeg`、`fonts-noto-cjk`。應用程式的環境檢查會確認 libx264 與中文字型。
-4. 手動流程不用 Secrets。啟用 AI 時，把 `.streamlit/secrets.toml.example` 的 Gemini 設定放到 Cloud 的 Secrets，填入未啟用帳務的免費專案金鑰。介面預設 `gemini-3.1-flash-lite`，標示「(建議)」，仍可自行切換其他模型；程式不在失敗後自動換型號。真實金鑰不得放在 repository 或前端。
+4. 在 Cloud Secrets 設定 `APP_PASSWORD` 共用密碼。啟用 AI 時，把 `.streamlit/secrets.toml.example` 的 Gemini 設定放到 Cloud 的 Secrets，填入未啟用帳務的免費專案金鑰。介面預設 `gemini-3.1-flash-lite`，標示「(建議)」，仍可自行切換其他模型；程式不在失敗後自動換型號。真實金鑰不得放在 repository 或前端。
 5. 部署後先跑短片，再跑 20 秒 Full HD。**本專案本機成功不代表已公開部署，也不保證免費 Cloud 的效能**；能力不足時介面顯示錯誤，可改用瀏覽器輸出或本機 Streamlit。
 
 Cloud 安裝依據：[官方依賴文件](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies)。免費 Cloud 公開 app 可能被其他人使用，目前有張數、時間、檔案大小、程序同時輸出及 AI 工作階段／程序共用限流；程序重新啟動會重置共用上限。
@@ -190,7 +205,7 @@ Cloud 安裝依據：[官方依賴文件](https://docs.streamlit.io/deploy/strea
 | Branch | `main` |
 | Main file path | `app.py` |
 
-Cloud 的 **Settings → Secrets** 使用上方 Gemini TOML 範例，填入真實金鑰後儲存。金鑰只放在 Secrets，不放在 Main file path、README 或原始碼。
+Cloud 的 **Settings → Secrets** 先設定 `APP_PASSWORD`，需要 AI 時再加入 Gemini TOML 設定。密碼與金鑰只放在 Secrets，不放在 Main file path、README 或原始碼。
 
 ## 專案結構
 

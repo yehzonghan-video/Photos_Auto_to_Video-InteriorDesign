@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 from studio.ai import AIError, CallBudget, DEFAULT_MODEL, analyze_batch
+from tests.app_helpers import authenticated_app
 
 
 class AIUITests(unittest.TestCase):
@@ -15,7 +16,7 @@ class AIUITests(unittest.TestCase):
         with patch('studio.ai_ui.settings',return_value=('mock-server-only','gemini-3.8-flash')), \
              patch('studio.ai.analyze_photo',return_value=[item]) as provider:
             with patch('studio.ai_ui.analyze_batch',side_effect=lambda *a,**kw:analyze_batch(*a,**kw,budget=CallBudget(),sleeper=lambda seconds:None)):
-                app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=90).run()
+                app=authenticated_app()
                 next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
                 self.assertEqual(app.selectbox(key='ai_model').value,'gemini-3.1-flash-lite')
                 self.assertIn('Gemini 3.1 Flash-Lite (建議)',app.selectbox(key='ai_model').options)

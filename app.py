@@ -13,8 +13,10 @@ from studio.rendering import font_path, template_config
 from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 from studio.photo_processing import fit_session
+from studio.access import require_password, logout
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
+require_password()
 st.markdown("""<style>
 .block-container{max-width:1280px;padding-top:2rem;padding-bottom:2rem}
 h1{font-size:2rem!important;letter-spacing:.025em}h2{font-size:1.3rem!important}
@@ -90,6 +92,8 @@ def add_uploaded(uploaded, role="general"):
 
 with st.sidebar:
     st.markdown("### 案例影片工作室")
+    st.button("登出", on_click=logout, use_container_width=True)
+    st.caption("登出會清除目前工作階段的照片與影片，請先下載成果。")
     st.caption("第四階段 · 裝修前後對比")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
