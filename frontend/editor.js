@@ -4,7 +4,7 @@ const W = 1080, H = 1920, ctx = $('canvas').getContext('2d');
 let photos = [], selectedPhoto = null, selectedLabel = null, imageCache = new Map(), tileCache = new Map();
 let assetMeta=new Map(),assetCache=new Map();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
-let showSafeArea=true;
+let showSafeArea=true,guideKind=null;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
 const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
 const waiters=new Map();
@@ -12,7 +12,10 @@ let photoDragId=null, editRaf=0, serverBusy=false, preparing=false;
 let lastRevision=null, recordingFailure=null, activeExportRequest=null, receivedSession=null, storageFailed=false;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const isCompare=()=>draft.template==='compare';
-const sequence=()=>isCompare()?draft.comparisons:photos;
+const bodySequence=()=>isCompare()?draft.comparisons:photos;
+const coverDuration=()=>photos.length?StudioCover.duration(draft.cover):0;
+const coverScene=()=>({id:'project-cover',type:'cover',name:'片頭封面',duration:.5,labels:[],image:photos.find(p=>p.id===draft.cover?.photo_id)?.image});
+const sequence=()=>coverDuration()?[coverScene(),...bodySequence()]:bodySequence();
 const projectOverlays=()=>isCompare()?draft.comparisonOverlays:draft.overlays;
 const photo = () => sequence().find(p => p.id === selectedPhoto) || sequence()[0];
 const cropPhoto=()=>isCompare()?photo()?.[comparisonEditor.cropSide+'_crop']:photo();
@@ -24,6 +27,7 @@ function resize() { post('streamlit:setFrameHeight', {height:Math.ceil(document.
 new ResizeObserver(resize).observe(document.querySelector('.studio'));
 function metadata() { return photos.map(({image, tiles, ...row}) => row); }
 function validProject() {
+  const coverError=StudioCover.validate(draft.cover,photos);if(coverError){status(coverError,true);return false;}
   if (total() > 120) { status('影片總長最多 120 秒，請縮短照片秒數。', true); return false; }
   const comparisonError=StudioComparison.validate(draft.comparisons,photos);
   if(comparisonError){status(comparisonError,true);return false;}
@@ -62,8 +66,9 @@ function markEdited(persist=true) {
   const priorPhoto=selectedPhoto;
   draft.touch(photos);clearBrowserResult();
   comparisonEditor.prune();
-  StudioTimeline.clampOverlays(draft.overlays,StudioTimeline.total(photos));
-  StudioTimeline.clampOverlays(draft.comparisonOverlays,StudioTimeline.total(draft.comparisons));
+  StudioCover.ensureSource(draft.cover,photos);
+  StudioTimeline.clampOverlays(draft.overlays,StudioTimeline.total(photos)+coverDuration());
+  StudioTimeline.clampOverlays(draft.comparisonOverlays,StudioTimeline.total(draft.comparisons)+coverDuration());
   if(!sequence().some(p=>p.id===selectedPhoto)){selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;}
   time=clamp(time,0,Math.max(0,total()-1/30));
   const active=pngEditor.item();
@@ -103,7 +108,9 @@ window.addEventListener('message', async event => {
   const generation = ++renderGeneration;
   try {
     const rows = args.project.photos;
+    StudioCover.configure(args.project.cover_assets?.layout);
     StudioSafeArea.configure(args.project.safe_area);StudioSafeArea.mount($('safeAreaGuide'));
+    guideKind=null;
     if(receivedSession!==args.session) {
       try {const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');
         if(draft.restore(saved,args.session)){
@@ -116,11 +123,14 @@ window.addEventListener('message', async event => {
       receivedSession=args.session;
     }
     const templateChanged=draft.template!==(args.project.template_id||'items');
+    const legacyCover=draft.session===args.session&&draft.cover===null&&(draft.dirty||draft.pending);
     const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[],
-                              args.project.comparisons||[],args.project.comparison_overlays||[]);
+                              args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null);
     if(result.stale)return;
     photos=draft.rows;
     draft.template=args.project.template_id||'items';
+    if(legacyCover&&draft.cover?.enabled){for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start+=.5;time+=.5;draft.touch(photos);}
+    if(StudioCover.ensureSource(draft.cover,photos))draft.touch(photos);
     comparisonEditor.prune();
     // 舊工作階段的標題只升級一次；沿用草稿同步，避免覆蓋未套用的人工內容。
     let upgraded=false;for(const c of draft.comparisons)if(StudioComparison.upgradeTitles(c))upgraded=true;
@@ -139,9 +149,13 @@ window.addEventListener('message', async event => {
       tiles.set(id,current?.src===data.src?current:{image:await loadImage(data.src),key,src:data.src});
     }
     const assets=args.project.assets||[],pngImages=new Map();
+    const coverAssets=args.project.cover_assets||{};
+    const coverTemplate=coverAssets.template?(coverEditor.template?.src===coverAssets.template?coverEditor.template:await loadImage(coverAssets.template)):null;
+    const coverTitle=coverAssets.title?(coverEditor.calibrated?.image.src===coverAssets.title?coverEditor.calibrated.image:await loadImage(coverAssets.title)):null;
     await Promise.all(assets.map(async asset=>pngImages.set(asset.id,assetCache.get(asset.id)||await loadImage(asset.image))));
     if (generation !== renderGeneration) return;
     imageCache = images; tileCache = tiles;
+    coverEditor.template=coverTemplate;coverEditor.calibrated=coverTitle?{image:coverTitle,key:StudioCover.key(args.project.cover)}:null;
     assetMeta=new Map(assets.map(asset=>[asset.id,asset]));assetCache=pngImages;
     if(lastRevision!==null && args.revision!==lastRevision) {
       clearBrowserResult();
@@ -183,7 +197,8 @@ function button(text, fn, className = '') {
 }
 function buildPhotos() {
   $('photos').replaceChildren();
-  const active=sequence();active.forEach((p, index) => {
+  if(coverDuration())$('photos').append(button('封面 · 0.5秒',()=>selectMaterial({type:'cover',source:'project-cover',id:'project-cover',start:0}),'photo'+(selectedPhoto==='project-cover'?' active':'')));
+  const active=bodySequence();active.forEach((p, index) => {
     const item = button('', () => selectMaterial({type:'photo',id:p.id,source:p.id,start:photoOffset(p.id)}), 'photo' + (p.id === selectedPhoto ? ' active' : ''));
     item.draggable = true; item.dataset.photoId = p.id; item.title = p.name;
     const img = document.createElement('img'); img.src = p.image||photos.find(row=>row.id===p.after_id)?.image||''; img.alt = p.name;
@@ -207,22 +222,24 @@ function buildPhotos() {
 function buildLabels() {
   $('labels').replaceChildren();
   const p=photo(); if(!p)return;
-  if (!p.labels.length) $('labels').textContent = '尚無標籤，先新增一個裝修項目。';
+  if (!p.labels.length) $('labels').textContent = p.type==='cover'?'封面標題使用上方設定。':'尚無標籤，先新增一個裝修項目。';
   p.labels.forEach(l => $('labels').append(button(l.text, () => {
     pngEditor.selected=null;selectedLabel=l.id;
     if(isCompare()&&l.comparison_side){stopPlayback();editing=true;comparisonEditor.view='combined';
       time=photoOffset(p.id)+(l.comparison_side==='before'?0:p.before_time);}
     persistDraft();buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
   $('labelForm').hidden = !label();
-  $('addLabel').disabled = p.labels.length >= 12 || recording||preparing||serverBusy;
+  $('addLabel').disabled = p.type==='cover'||p.labels.length >= 12 || recording||preparing||serverBusy;
 }
 const labelFields = ['text','font_size','color','background','opacity','radius','line','animation','start','end','enter','layer'];
 function fillForm() {
+  coverEditor.refresh();
   comparisonEditor.refresh();
   $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
   $('edit').textContent=isCompare()?'編輯對比片段':'編輯目前照片';
-  for(const key of ['duration','fit','zoom','crop_x','crop_y','moveLeft','moveRight','deletePhoto','addLabel'])$(key).disabled=!photo()||recording||preparing||serverBusy;
+  for(const key of ['duration','fit','zoom','crop_x','crop_y','moveLeft','moveRight','deletePhoto','addLabel'])$(key).disabled=!photo()||photo().type==='cover'||recording||preparing||serverBusy;
   const p=photo(); if(!p){$('labelForm').hidden=true;$('overlayForm').hidden=true;return;}
+  if(p.type==='cover'){$('labelForm').hidden=true;$('duration').value=.5;$('photoNumber').textContent='片頭封面';$('edit').textContent='編輯封面';pngEditor.refresh();return;}
   if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${sequence().findIndex(row=>row.id===p.id)+1} / ${sequence().length}`;
   for (const key of ['zoom','crop_x','crop_y']) $(key).value=cropPhoto()[key];
   $('fit').value=cropPhoto().fit || 'contain';
@@ -257,14 +274,19 @@ function bounds(l) {
   return {width,height,x:Math.min(l.x*W,W-width),y:Math.min(l.y*H,H-height)};
 }
 function visibleEditLabel(p,l){return !isCompare()||StudioComparison.visibleTitle(p,l,time-photoOffset(p.id),comparisonEditor.view);}
-function updateSafeArea(){ $('safeAreaGuide').hidden=!showSafeArea||!editing||recording; }
+function updateSafeArea(){
+  const kind=photo()?.type==='cover'?'cover':'body';
+  if(kind!==guideKind){if(kind==='cover')StudioCover.mountGuide($('safeAreaGuide'));else StudioSafeArea.mount($('safeAreaGuide'));guideKind=kind;}
+  $('safeAreaGuide').hidden=!showSafeArea||!editing||recording;
+}
 $('showSafeArea').onchange=()=>{showSafeArea=$('showSafeArea').checked;updateSafeArea();persistDraft();};
 function draw() {
   updateSafeArea();
   const state=editing?{photo:photo(),local:time-photoOffset(photo()?.id)}:locate(time), p=state.photo;
   ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p){$('clock').textContent='0.0 / 0.0 s';$('seek').value=0;timeline.draw();return;}
   const image=imageCache.get(p.id);
-  if(isCompare())comparisonEditor.draw(ctx,p,state.local,editing);
+  if(p.type==='cover')coverEditor.draw(ctx);
+  else if(isCompare())comparisonEditor.draw(ctx,p,state.local,editing);
   else if(image) {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
     ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
@@ -344,16 +366,17 @@ function tick(now) {
   raf=requestAnimationFrame(tick);
 }
 $('play').onclick=()=>{if(recording)return;if(playing){stopPlayback();return;}editing=false;playing=true;if(time>=total()-1/30)time=0;startClock=performance.now()-time*1000;$('play').textContent='❚❚ 暫停';raf=requestAnimationFrame(tick);};
-$('edit').onclick=()=>{if(recording)return;stopPlayback();editing=true;draw();};
+$('edit').onclick=()=>{if(recording)return;stopPlayback();const p=locate(time).photo;if(p){selectedPhoto=p.id;selectedLabel=p.labels[0]?.id;}editing=true;buildPhotos();buildLabels();fillForm();draw();};
 $('seek').oninput=()=>seekTime(Number($('seek').value));
 $('duration').onchange=()=>{
-  const p=photo(),value=Number($('duration').value); if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
+  const p=photo(),value=Number($('duration').value);if(p?.type==='cover')return; if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
   StudioTimeline.photoDuration(p,value);
   buildPhotos();fillForm();markEdited();
 };
 $('duration').oninput=()=>{
   clearBrowserResult();
   const p=photo(),value=Number($('duration').value);
+  if(p?.type==='cover')return;
   if(value<1||value>20||!Number.isFinite(value)){status('每張照片需為 1～20 秒。',true);return;}
   StudioTimeline.photoDuration(p,value);
   buildPhotos();markEdited();
@@ -378,7 +401,7 @@ for(const key of labelFields) {
   };
 }
 $('addLabel').onclick=()=>{
-  const p=photo();if(!p||p.labels.length>=12)return;
+  const p=photo();if(!p||p.type==='cover'||p.labels.length>=12)return;
   pngEditor.selected=null;
   const l={id:crypto.randomUUID(),text:'裝修項目',x:.12,y:.28,point_x:.58,point_y:.52,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'left',start:0,enter:.6,end:p.duration};
   p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();markEdited();
@@ -389,7 +412,7 @@ $('deletePhoto').onclick=()=>{if(isCompare()){const i=draft.comparisons.findInde
   selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;markEdited();buildPhotos();buildLabels();fillForm();draw();comparisonEditor.library();};
 $('applyChanges').onclick=()=>synchronize().catch(error=>status(error.message,true));
 function movePhoto(delta) {
-  const rows=sequence(),index=rows.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(next<0||next>=rows.length)return;
+  const rows=bodySequence(),index=rows.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(index<0||next<0||next>=rows.length)return;
   [rows[index],rows[next]]=[rows[next],rows[index]];buildPhotos();markEdited();
 }
 $('moveLeft').onclick=()=>movePhoto(-1);$('moveRight').onclick=()=>movePhoto(1);
@@ -411,7 +434,7 @@ function lockEditor(locked) {
   if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!!draft.pending;}
 }
 $('browserExport').onclick=async()=>{
-  if(!sequence().length){status('請先加入照片或新增一組前後配對。',true);return;}
+  if(!bodySequence().length){status('請先加入照片或新增一組前後配對。',true);return;}
   if(!validProject()||draft.pending||serverBusy||preparing)return;
   const mime=supportedMime();if(!mime){status('此瀏覽器不支援 H.264 MP4，請使用 FFmpeg。',true);return;}
   preparing=true;lockEditor(true);
@@ -448,7 +471,7 @@ function selectMaterial(item){if(recording||preparing||serverBusy)return;stopPla
   if(item.type==='png'){pngEditor.selected=item.id;selectedLabel=null;seekTime(item.start,true);}
   else {pngEditor.selected=null;selectedPhoto=item.source;selectedLabel=item.type==='label'?item.id:photo()?.labels[0]?.id;time=item.start;}
   buildPhotos();buildLabels();fillForm();draw();persistDraft();}
-const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photos,clips:()=>draft.comparisons,current:photo,
+const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photos,clips:()=>draft.comparisons,current:()=>photo()?.type==='cover'?null:photo(),
   active:isCompare,images:()=>imageCache,locked:()=>recording||preparing||serverBusy,status,
   choose:id=>{if(id)selectMaterial({id,source:id,type:'comparison',start:photoOffset(id)});},
   removeSource:id=>{draft.deleted.push(id);const i=photos.findIndex(p=>p.id===id);if(i>=0)photos.splice(i,1);},
@@ -457,7 +480,11 @@ const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photo
 const pngEditor=new StudioPNG.PNGEditor({overlays:projectOverlays,assets:()=>assetMeta,images:()=>assetCache,
   locked:()=>recording||preparing||serverBusy,total,time:()=>time,status,
   select:o=>selectMaterial(o),changed:()=>{editing=true;stopPlayback();markEdited();fillForm();draw();}});
-const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:sequence,overlays:projectOverlays,time:()=>time,
+const coverEditor=new StudioCover.CoverEditor({cover:()=>draft.cover,photos:()=>photos,images:()=>imageCache,slots:()=>[draft.overlays,draft.comparisonOverlays],
+  viewing:()=>photo()?.type==='cover',
+  locked:()=>recording||preparing||serverBusy,status,choose:()=>selectMaterial({type:'cover',id:'project-cover',source:'project-cover',start:0}),
+  change:()=>{stopPlayback();editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});
+const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:bodySequence,offset:coverDuration,overlays:projectOverlays,time:()=>time,
   locked:()=>recording||preparing||serverBusy,seek:seekTime,select:selectMaterial,
   selected:item=>item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
   change:persist=>{stopPlayback();editing=true;markEdited(persist);buildPhotos();fillForm();draw();}});

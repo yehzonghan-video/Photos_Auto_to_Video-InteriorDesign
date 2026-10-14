@@ -3,6 +3,7 @@ from .models import update_project
 from .overlays import validate_overlays
 from dataclasses import replace
 from .comparison import validate_comparisons
+from .cover import validate_cover, DURATION
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -54,11 +55,18 @@ def consume_editor_event(state, event):
         staged=apply_editor_event([replace(p) for p in state["photos"]],event,state["editor_session"],
                                   state["revision"],request["id"] if request else None)
         clips=validate_comparisons(event.get("comparisons",state.get("comparisons",[])),staged)
-        duration=sum(p.duration for p in staged)
+        raw_cover=event.get('cover',state.get('cover'))
+        if 'cover' not in event and isinstance(raw_cover,dict) and raw_cover.get('photo_id') not in {p.id for p in staged}:
+            raw_cover={**raw_cover,'photo_id':''}  # 舊版事件刪除來源時，自動改選可用照片。
+        cover=validate_cover(raw_cover,staged)
+        prefix=DURATION if cover['enabled'] and staged else 0
+        duration=sum(p.duration for p in staged)+prefix
+        if (sum(c['duration'] for c in clips) if template=='compare' else sum(p.duration for p in staged))+prefix>120:
+            raise ValueError('影片含片頭最長120秒，請縮短片段。')
         overlays = validate_overlays(event.get("overlays", state.get("overlays", [])),
                                      state.get("overlay_assets", {}), duration)
         comparison_overlays=validate_overlays(event.get("comparison_overlays",state.get("comparison_overlays",[])),
-                                      state.get("overlay_assets",{}),sum(c["duration"] for c in clips))
+                                      state.get("overlay_assets",{}),sum(c["duration"] for c in clips)+prefix)
         if template=="compare" and event.get("action")=="export" and not clips:
             raise ValueError("請先新增一組前後配對再輸出。")
         photos = apply_editor_event(state["photos"], event, state["editor_session"],
@@ -67,6 +75,7 @@ def consume_editor_event(state, event):
         state["overlays"] = overlays
         state["comparisons"]=clips
         state["comparison_overlays"]=comparison_overlays
+        state['cover']=cover
         acknowledgements = event.get("imported_batches", [])
         if isinstance(acknowledgements, list):
             state["ai_imports"] = [batch for batch in state.get("ai_imports", [])

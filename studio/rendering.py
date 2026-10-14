@@ -77,7 +77,8 @@ def label_tile(label):
     draw.rounded_rectangle((0, 0, width-1, height-1), int(label["radius"]),
                            fill=(*rgb, round(label["opacity"] * 255)))
     for i, line in enumerate(lines):
-        draw.text((padding, padding + i * step), line, font=font, fill=label["color"], anchor="lt")
+        draw.text((padding, padding + i * step), line, font=font, fill=label["color"], anchor="lt",
+                  stroke_width=2, stroke_fill="#000000")
     return tile
 
 

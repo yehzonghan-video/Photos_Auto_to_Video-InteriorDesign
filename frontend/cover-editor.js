@@ -1,0 +1,62 @@
+// 封面與局部字色只操作本地草稿；套用／輸出時沿用既有整批同步。
+(function(root){
+  let layout=typeof module!=='undefined'?require('./cover-layout.json'):null;
+  const $=id=>document.getElementById(id),duration=c=>c?.enabled===true ? .5 : 0;
+  function configure(value){if(value)layout=value;}
+  function key(c){return JSON.stringify([c.title,c.color,c.font_size,c.highlights,2]);}
+  function colors(c){const result=Array.from(c.title,()=>c.color);for(const r of c.highlights)for(let i=r.start;i<r.end;i++)result[i]=r.color;return result;}
+  function ensureSource(c,photos){if(!c||photos.some(p=>p.id===c.photo_id))return false;
+    c.photo_id=(photos.find(p=>p.role==='after')||photos[0])?.id||'';return true;}
+  function validate(c,photos){if(!c)return null;
+    if(typeof c.enabled!=='boolean'||typeof c.title!=='string'||(c.enabled&&!c.title.trim())||Array.from(c.title).length>80||c.title.split('\n').length>6)return '封面標題需為1～80字，最多6行。';
+    if(c.enabled&&photos.length&&!photos.some(p=>p.id===c.photo_id))return '請選擇封面照片。';
+    const hex=v=>/^#[0-9a-fA-F]{6}$/.test(v);
+    if(!hex(c.color)||!Number.isInteger(c.font_size)||c.font_size<36||c.font_size>160||!Array.isArray(c.highlights)||c.highlights.length>80)return '封面樣式設定不正確。';
+    for(const r of c.highlights)if(!Number.isInteger(r.start)||!Number.isInteger(r.end)||r.start<0||r.end<=r.start||r.end>Array.from(c.title).length||!hex(r.color))return '請重新選取要改色的標題文字。';
+    return null;}
+  function raster(c,createCanvas){const canvas=createCanvas(),box=layout.title;canvas.width=box.width;canvas.height=box.height;
+    const ctx=canvas.getContext('2d'),chars=Array.from(c.title);let size=Number.isFinite(c.font_size)?Math.max(24,Math.min(160,c.font_size)):120,lines,step;
+    while(true){ctx.font=`${size}px "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif`;lines=[];let line=[];
+      chars.forEach((char,index)=>{if(char==='\n'){lines.push(line);line=[];return;}
+        if(line.length&&ctx.measureText(line.map(v=>v.char).join('')+char).width>box.width-24){lines.push(line);line=[];}line.push({char,index});});lines.push(line);
+      step=Math.trunc(size*1.35);if(lines.length*step<=box.height-24||size<=24)break;size--;}
+    const palette=colors(c);ctx.textBaseline='alphabetic';ctx.strokeStyle='#000000';ctx.lineWidth=4;ctx.lineJoin='round';
+    lines.forEach((line,row)=>{const left=(box.width-ctx.measureText(line.map(v=>v.char).join('')).width)/2;let prefix='';
+      for(const {char,index} of line){const x=left+ctx.measureText(prefix).width,y=(box.height-lines.length*step)/2+row*step+size;
+        ctx.strokeText(char,x,y);ctx.fillStyle=palette[index];ctx.fillText(char,x,y);prefix+=char;}});return canvas;}
+  function mountGuide(element){element.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" aria-hidden="true"><g fill="none" stroke="white" stroke-opacity=".8" stroke-width="8">${[layout.title,layout.photo].map(b=>`<rect x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}"/>`).join('')}</g></svg>`;}
+  class CoverEditor{
+    constructor(hooks){this.hooks=hooks;this.template=null;this.calibrated=null;this.local=null;this.selection=null;this.scene=null;
+      $('coverEnabled').onchange=()=>{const c=hooks.cover();if(!c||hooks.locked())return;const prior=duration(c);c.enabled=$('coverEnabled').checked;
+        const delta=duration(c)-prior;for(const slot of hooks.slots())for(const o of slot)o.start=Math.max(0,o.start+delta);
+        hooks.change();};
+      $('coverTitle').oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.title=$('coverTitle').value;c.highlights=[];this.selection=null;hooks.change();};
+      $('coverTitle').onselect=()=>{const input=$('coverTitle');this.selection={start:Array.from(input.value.slice(0,input.selectionStart||0)).length,end:Array.from(input.value.slice(0,input.selectionEnd||0)).length};
+        $('coverSelection').textContent=input.value.slice(input.selectionStart||0,input.selectionEnd||0)?'已選：'+input.value.slice(input.selectionStart,input.selectionEnd):'先在標題輸入框反白要改色的文字';};
+      for(const [id,field] of [['coverPhoto','photo_id'],['coverColor','color'],['coverSize','font_size']])$(id).oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c[field]=field==='font_size'?Number($(id).value):$(id).value;hooks.change();};
+      $('coverApplyColor').onclick=()=>{const c=hooks.cover(),r=this.selection;if(!c||hooks.locked())return;
+        if(!r||r.end<=r.start){hooks.status('請先反白選取要改色的標題文字。',true);return;}
+        if(c.highlights.length>=80){hooks.status('局部字色最多80組，請先清除後重新設定。',true);return;}
+        c.highlights.push({...r,color:$('coverSelectedColor').value});hooks.change();};
+      $('coverClearColors').onclick=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.highlights=[];hooks.change();};
+      $('editCover').onclick=()=>{if(hooks.cover()?.enabled&&!hooks.locked())hooks.choose();};
+    }
+    refresh(){const c=this.hooks.cover();$('coverPanel').hidden=!c;if(!c)return;
+      const viewing=this.hooks.viewing?.()||false;if(viewing!==this.scene){$('coverPanel').open=viewing;this.scene=viewing;}
+      $('coverEnabled').checked=c.enabled;
+      for(const [id,field] of [['coverTitle','title'],['coverColor','color'],['coverSize','font_size']])if(document.activeElement!==$(id))$(id).value=c[field];
+      $('coverPhoto').replaceChildren();for(const p of this.hooks.photos()){const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('coverPhoto').append(option);}$('coverPhoto').value=c.photo_id;
+      $('coverColorPreview').replaceChildren();const palette=colors(c);Array.from(c.title).forEach((char,i)=>{const span=document.createElement('span');span.textContent=char;span.style.color=palette[i];$('coverColorPreview').append(span);});
+    }
+    draw(ctx){const c=this.hooks.cover();if(!c)return;
+      if(this.template){const scale=Math.min(1080/this.template.naturalWidth,1920/this.template.naturalHeight);ctx.drawImage(this.template,(1080-this.template.naturalWidth*scale)/2,0,this.template.naturalWidth*scale,this.template.naturalHeight*scale);}
+      const image=this.hooks.images().get(c.photo_id),box=layout.photo;
+      if(image){const fit=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,box.width,box.height,{fit:'contain',zoom:1,crop_x:.5,crop_y:.5});ctx.drawImage(image,fit.sx,fit.sy,fit.sw,fit.sh,box.x+fit.dx,box.y+fit.dy,fit.dw,fit.dh);}
+      const titleKey=key(c);let tile=this.calibrated?.key===titleKey?this.calibrated.image:null;
+      if(!tile){if(this.local?.key!==titleKey)this.local={key:titleKey,image:raster(c,()=>document.createElement('canvas'))};tile=this.local.image;}
+      ctx.drawImage(tile,layout.title.x,layout.title.y,layout.title.width,layout.title.height);
+    }
+  }
+  const api={configure,duration,key,colors,ensureSource,validate,raster,mountGuide,CoverEditor};
+  if(typeof module!=='undefined')module.exports=api;else root.StudioCover=api;
+})(typeof window!=='undefined'?window:this);

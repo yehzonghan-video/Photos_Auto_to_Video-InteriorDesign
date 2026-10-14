@@ -14,6 +14,7 @@ from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 from studio.photo_processing import fit_session
 from studio.access import require_password, logout
+from studio.cover import new_cover
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
@@ -27,6 +28,7 @@ h1{font-size:2rem!important;letter-spacing:.025em}h2{font-size:1.3rem!important}
 .workflow{font-size:13px;padding:13px 18px;border:1px solid #ded8cb;border-radius:9px;margin:16px 0 20px;color:#58694e;background:#f0ece3}
 </style>""", unsafe_allow_html=True)
 
+cover_added='cover' not in st.session_state
 defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 revision=0, output_seconds=None, notice=None, notice_error=False,
                 editor_session=uuid.uuid4().hex, editor_seen=[], editor_response=None,
@@ -34,10 +36,16 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
                 ai_queue=[], ai_delivered={}, ai_pending={}, overlays=[], png_epoch=0,
                 comparisons=[], comparison_overlays=[], template_mode="items", last_template="items",
-                photo_upload_epochs={"general":0,"before":0,"after":0})
+                photo_upload_epochs={"general":0,"before":0,"after":0},cover=new_cover())
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+if cover_added and st.session_state.photos:
+    for slot in (st.session_state.overlays,st.session_state.comparison_overlays):
+        for overlay in slot:overlay['start']+=.5
+if st.session_state.get('cover_version')!=1:
+    st.session_state.cover_version=1;st.session_state.project_payload=None
+    st.session_state.editor_assets={};st.session_state.output=None
 if "overlay_assets" not in st.session_state:
     st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
 if st.session_state.get("photo_preview_version") != 1:
@@ -126,6 +134,7 @@ with st.sidebar:
         st.session_state.editor_busy = False
         st.session_state.overlays = []
         st.session_state.comparisons=[];st.session_state.comparison_overlays=[]
+        st.session_state.cover=new_cover()
         st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
         st.session_state.png_epoch += 1
         for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
@@ -239,7 +248,7 @@ try:
     if st.session_state.project_payload is None:
         st.session_state.project_payload = payload(photos, st.session_state.editor_assets,
                  st.session_state.overlay_assets, st.session_state.overlays,st.session_state.comparisons,
-                 st.session_state.template_mode,st.session_state.comparison_overlays)
+                 st.session_state.template_mode,st.session_state.comparison_overlays,st.session_state.cover)
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,
@@ -277,7 +286,7 @@ if job:
                             progress=lambda value, message: bar.progress(value, text=message),
                             overlays=st.session_state.comparison_overlays if compare_mode else st.session_state.overlays,
                             assets=st.session_state.overlay_assets,template=st.session_state.template_mode,
-                            comparisons=st.session_state.comparisons)
+                            comparisons=st.session_state.comparisons,cover=st.session_state.cover)
         st.session_state.output = data
         st.session_state.output_seconds = round(time.monotonic() - started, 1)
     except (RuntimeError, ValueError, OSError, TimeoutError) as exc:

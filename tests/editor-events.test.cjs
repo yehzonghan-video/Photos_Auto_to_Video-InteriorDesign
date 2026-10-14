@@ -17,7 +17,7 @@ function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
     const handlers={},ctx={font:'46px sans-serif',measureText:text=>({width:text.length*46}),
-      roundRect(){},beginPath(){},fill(){},fillText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
+      roundRect(){},beginPath(){},fill(){},fillText(){},strokeText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
       arc(){},rect(){},clip(){},save(){},restore(){},translate(){},rotate(){},strokeRect(){},setLineDash(){},drawImage(){draws++;}};
     return {tagName:tag,children:[],value:'',checked:true,disabled:false,hidden:false,width:1080,height:1920,
       classList:{toggle(){},add(){},remove(){}},dataset:{},style:{},
@@ -38,6 +38,8 @@ function environment(storage=new Map()) {
   vm.runInContext(fs.readFileSync('frontend/timeline-ui.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/png-editor.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/comparison-editor.js','utf8'),context);
+  vm.runInContext(fs.readFileSync('frontend/cover-editor.js','utf8'),context);
+  context.StudioCover=window.StudioCover;
   context.StudioTimelineUI=window.StudioTimelineUI;context.StudioPNG=window.StudioPNG;context.StudioComparisonUI=window.StudioComparisonUI;
   vm.runInContext(fs.readFileSync('frontend/editor.js','utf8'),context);
   const rows=()=>[{id:'p1',content_hash:'hash',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
@@ -46,6 +48,25 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,get draws(){return draws;}};
 }
+test('封面照片、反白局部字色、半秒時間軸與開關偏移全部本地；同步包含最新封面',async()=>{
+  const env=environment(),rows=env.rows(),layout=JSON.parse(fs.readFileSync('frontend/cover-layout.json'));
+  const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const o={id:'o',type:'png',source:'a',start:1,duration:2,x:.5,y:.5,width:.2,scale:1,rotation:0,opacity:1,layer:20,animation:'none',exit_animation:'none',enter:0,exit:0};
+  const project={photos:rows,cover,cover_assets:{layout},assets:[{id:'a',image:'png',width:100,height:100}],overlays:[o]};
+  await env.receive({project});const get=id=>env.elements.get(id);
+  assert.equal(vm.runInContext('total()',env.context),8.5);assert.equal(get('photos').children.length,3);
+  get('coverTitle').value='翻新88萬';get('coverTitle').oninput();
+  get('coverTitle').selectionStart=2;get('coverTitle').selectionEnd=4;get('coverTitle').onselect();env.context.document.getElementById('coverSelectedColor').value='#ff0000';get('coverApplyColor').onclick();
+  get('coverPhoto').value='p2';get('coverPhoto').oninput();assert.equal(env.changes().length,0);
+  assert.equal(vm.runInContext('draft.cover.highlights[0].end',env.context),4);
+  get('coverEnabled').checked=false;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),.5);
+  get('coverEnabled').checked=true;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),1);
+  await env.receive({project,revision:2});assert.equal(vm.runInContext('draft.cover.title',env.context),'翻新88萬');
+  const promise=get('applyChanges').onclick(),event=env.changes()[0].value;
+  assert.equal(event.cover.photo_id,'p2');assert.equal(event.cover.highlights[0].color,'#ff0000');
+  await env.receive({project:{...project,cover:event.cover,overlays:event.overlays},revision:3,response:{nonce:event.nonce,ok:true}});await promise;
+  assert.equal(env.changes().length,1);
+});
 test('安全框開關與預覽隱藏只處理DOM；標題可拖出內框、rerun和重建保留人工位置',async()=>{
   const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
   const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));

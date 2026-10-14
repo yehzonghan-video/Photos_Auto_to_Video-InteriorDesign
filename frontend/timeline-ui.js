@@ -10,9 +10,9 @@
         e.preventDefault();hooks.seek(hooks.time()+(e.key==='ArrowLeft'?-1:1)/30);}});
     }
     draw(){
-      const h=this.hooks,p=h.photos(),length=StudioTimeline.total(p),all=StudioTimeline.items(p,h.overlays());
+      const h=this.hooks,p=h.photos(),prefix=h.offset?.()||0,length=StudioTimeline.total(p)+prefix,all=StudioTimeline.items(p,h.overlays(),prefix);
       this.length=length;this.width=Math.round(Math.max(600,this.canvas.parentElement?.clientWidth||900)*this.zoom);
-      const tracks=[{name:p[0]?.type==='comparison'?'對比':'照片',color:'#5d7760',rows:1,clips:all.filter(i=>['photo','comparison'].includes(i.type)).map(item=>({item,lane:0}))},
+      const tracks=[{name:p[0]?.type==='comparison'?'對比':'照片',color:'#5d7760',rows:1,clips:all.filter(i=>['photo','comparison','cover'].includes(i.type)).map(item=>({item,lane:0}))},
         {name:'文字',color:'#b37b44',...StudioTimeline.lanes(all.filter(i=>i.type==='label'))},
         {name:'PNG',color:'#6b6caa',...StudioTimeline.lanes(all.filter(i=>i.type==='png'))}];
       const height=32+tracks.reduce((n,t)=>n+t.rows*36,0);
@@ -44,6 +44,7 @@
       this.canvas.setPointerCapture(e.pointerId);e.preventDefault();
       if(!hit){this.drag={seek:true};this.hooks.seek((pos.x-84)/this.px);return;}
       this.hooks.select(hit.item);
+      if(hit.item.type==='cover'){this.draw();return;}
       const mode=pos.x-hit.x<7?'left':hit.x+hit.w-pos.x<7?'right':'move';
       this.drag={item:{...hit.item},mode,x:pos.x,px:this.px,
         photos:StudioDraft.metadata(this.hooks.photos()),overlays:JSON.parse(JSON.stringify(this.hooks.overlays()))};
@@ -55,7 +56,7 @@
       const current=new Map(this.hooks.photos().map(p=>[p.id,p]));
       const p=this.hooks.photos();p.splice(0,p.length,...d.photos.map(row=>Object.assign(current.get(row.id),JSON.parse(JSON.stringify(row)))));
       const overlays=this.hooks.overlays();overlays.splice(0,overlays.length,...JSON.parse(JSON.stringify(d.overlays)));
-      StudioTimeline.edit(d.item,d.mode,(pos.x-d.x)/d.px,p,overlays);
+      StudioTimeline.edit(d.item,d.mode,(pos.x-d.x)/d.px,p,overlays,this.hooks.offset?.()||0);
       this.hooks.change(false);this.draw();
     }
     finish(){if(this.drag){const changed=!this.drag.seek;this.drag=null;if(changed)this.hooks.change(true);}}

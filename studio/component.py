@@ -6,13 +6,15 @@ import streamlit.components.v1 as components
 from .rendering import data_url, label_tile, template_config
 from .photo_processing import preview_data
 from .safe_area import SAFE_AREA
+from .cover import validate_cover, template_bytes, title_tile, LAYOUT
 
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
 
-def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, template="items", comparison_overlays=None):
+def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, template="items", comparison_overlays=None, cover=None):
     cache = {} if cache is None else cache
     live_ids = {photo.id for photo in photos} | {"clip:"+c["id"] for c in comparisons or []}
+    live_ids.add('__cover__')
     for ident in list(cache):
         if ident not in live_ids:
             del cache[ident]
@@ -30,6 +32,7 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
         row["tiles"] = {}
         for label in photo.labels:
             style = {key: label[key] for key in ("text", "font_size", "color", "background", "opacity", "radius")}
+            style['stroke_width']=2
             previous = photo_assets["tiles"].get(label["id"])
             if previous is None or previous["style"] != style:
                 tile = label_tile(label)
@@ -44,11 +47,20 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
         cached=cache.setdefault("clip:"+clip["id"],{"tiles":{}})
         for label in clip["labels"]:
             style={key:label[key] for key in ("text","font_size","color","background","opacity","radius")}
+            style['stroke_width']=2
             tile=cached["tiles"].get(label["id"])
             if tile is None or tile["style"]!=style:
                 image=label_tile(label);tile=dict(src=data_url(image),width=image.width,height=image.height,style=style)
             row["tiles"][label["id"]]=tile
         cached["tiles"]=dict(row["tiles"]);clips.append(row)
+    cover=validate_cover(cover,photos);cover_assets={'layout':LAYOUT}
+    if photos:
+        cached=cache.setdefault('__cover__',{})
+        style={k:cover[k] for k in ('title','color','font_size','highlights')}
+        if cached.get('style')!=style:
+            cached.update(style=style,title=data_url(title_tile(cover)))
+        cover_assets.update(title=cached['title'],template='data:image/png;base64,'+base64.b64encode(template_bytes()).decode('ascii'))
     return dict(photos=rows, template=template_config(template), template_id=template, schema_version=4, safe_area=SAFE_AREA,
+                cover=cover,cover_assets=cover_assets,
                 assets=[asset.metadata() for asset in (assets or {}).values()], overlays=overlays or [],
                 comparisons=clips, comparison_overlays=comparison_overlays or [])

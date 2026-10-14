@@ -34,7 +34,7 @@ def capabilities():
 
 
 def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout=300, overlays=None, assets=None,
-                 template="items", comparisons=None):
+                 template="items", comparisons=None, cover=None):
     if not photos:
         raise ValueError("請先上傳照片。")
     if (width, height) not in ((360, 640), (720, 1280), (1080, 1920)) or fps != 30:
@@ -43,7 +43,10 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     from .comparison import validate_comparisons, prepare_comparison, comparison_frame
     sequence=validate_comparisons(comparisons or [],photos) if template=="compare" else photos
     if not sequence:raise ValueError("請先新增一組前後配對再輸出。")
+    from .cover import validate_cover, cover_frame, DURATION
+    cover=validate_cover(cover,photos);prefix=DURATION if cover['enabled'] else 0
     duration = sum(p["duration"] if template=="compare" else p.duration for p in sequence)
+    duration+=prefix
     if duration > MAX_TOTAL_SECONDS:
         raise ValueError("影片最長 120 秒。")
     binary = capabilities()["binary"]
@@ -72,9 +75,23 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         process.kill()
                 timer = threading.Thread(target=watchdog, daemon=True)
                 timer.start()
-                total = sum(round((p["duration"] if template=="compare" else p.duration) * fps) for p in sequence)
+                total = sum(round((p["duration"] if template=="compare" else p.duration) * fps) for p in sequence)+round(prefix*fps)
                 done = 0
                 try:
+                    def write_frame(frame):
+                        nonlocal done
+                        if (width,height)!=frame.size:
+                            from PIL import Image
+                            frame=frame.resize((width,height),Image.Resampling.LANCZOS)
+                        process.stdin.write(frame.tobytes());done+=1
+                        if progress and (done%15==0 or done==total):
+                            progress(min(.98,done/total*.98),f'已送入編碼器 {done}/{total} 影格')
+                        if time.monotonic()-started>timeout:
+                            raise TimeoutError('輸出超過5分鐘，請縮短影片或改用720p。')
+                    if prefix:
+                        base=cover_frame(cover,photos)
+                        for index in range(round(prefix*fps)):
+                            write_frame(render_frame(base,[],[],index/fps,prepared,index/fps))
                     for photo in sequence:
                         if template=="compare":
                             frames=prepare_comparison(photo,photos);labels=photo["labels"];length=photo["duration"]
@@ -85,15 +102,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         for index in range(count):
                             if template=="compare":base=comparison_frame(photo,frames,index/fps)
                             frame = render_frame(base, labels, tiles, index / fps, prepared, done / fps)
-                            if (width, height) != frame.size:
-                                from PIL import Image
-                                frame = frame.resize((width, height), Image.Resampling.LANCZOS)
-                            process.stdin.write(frame.tobytes())
-                            done += 1
-                            if progress and (done % 15 == 0 or done == total):
-                                progress(min(.98, done / total * .98), f"已送入編碼器 {done}/{total} 影格")
-                            if time.monotonic() - started > timeout:
-                                raise TimeoutError("輸出超過 5 分鐘，請縮短影片或改用 720p。")
+                            write_frame(frame)
                     process.stdin.close()
                     code = process.wait(timeout=max(1, timeout - (time.monotonic() - started)))
                     if code:
