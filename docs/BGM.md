@@ -42,3 +42,13 @@ node --test tests/*.test.cjs
 人工待測：使用自己的合法音樂測完整片長、實體喇叭聆聽預覽與暫停／跳轉、在一般Chrome／Edge下載瀏覽器MP4確認有音軌及淡出、其他瀏覽器與Cloud完整操作。不支援瀏覽器音樂預覽或H.264＋AAC時顯示說明，使用FFmpeg成片下載播放；瀏覽器錄製仍無法保證固定30 FPS。
 
 修改檔案：`app.py`、`studio/music.py`、`studio/component.py`、`studio/sync.py`、`studio/export.py`、`frontend/music.js`、`frontend/draft-state.js`、`frontend/editor.js`、`frontend/index.html`及BGM測試／文件。沒有改Gemini核心、模板或文字／PNG動畫預設。
+
+## Cloud舊模組介面修復
+
+若出現`payload() takes from 1 to 8 positional arguments but 10 were given`，代表執行中的payload仍是加入BGM前的8參數版本，而app.py已傳入新版10個參數，並不是照片或音樂格式錯誤。可能是熱更新時保留舊匯入，或部署檔案未同步；新增`studio/bootstrap.py`在登入後核對三個製片模組版本及BGM參數，僅不相容時重新載入編輯器、同步與輸出模組。一般rerun不重載、不清除照片／標籤／音樂設定，既有FFmpeg輸出鎖仍保留。
+
+payload改為具名參數呼叫，避免新增功能依賴十個位置的排列。Cloud Logs可搜尋`APP_RUNTIME_RELOAD`查看哪些模組不相容。若磁碟檔案仍是舊版本，頁面明確提示部署版本不一致，不會忽略BGM或改輸出無聲影片。
+
+更新後重新進入頁面。仍遇舊版介面時，管理者可在右下`Manage app → ⋮ → Reboot app`重新啟動。[Streamlit官方重啟說明](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app/reboot-your-app)。重啟會清除目前記憶體中的照片／草稿，先下載仍可取得的成果。
+
+修復測試以舊8參數payload／不含BGM的export及舊sync模組重現，验证自動重載、輸出鎖不被替換、一般rerun不重載、部署檔案不完整時明確報錯，以及AppTest既有照片／人工標籤／音樂淡出設定保留。此為本機模擬熱更新驗證，Cloud實際狀態仍需更新後確認。

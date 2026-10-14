@@ -9,6 +9,8 @@ from .safe_area import SAFE_AREA
 from .cover import validate_cover, template_bytes, title_tile, LAYOUT
 from .music import validate_music
 
+BGM_API_VERSION = 1
+
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
 

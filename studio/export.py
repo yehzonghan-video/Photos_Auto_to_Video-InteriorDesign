@@ -10,7 +10,9 @@ import time
 from .models import MAX_TOTAL_SECONDS
 from .rendering import crop_photo, label_tile, render_frame
 
-RENDER_LOCK = threading.Lock()
+BGM_API_VERSION = 1
+# 相容性重載時沿用現有輸出鎖，避免同時開啟第二個FFmpeg程序。
+RENDER_LOCK = globals().get('RENDER_LOCK', threading.Lock())
 
 
 def ffmpeg_path():

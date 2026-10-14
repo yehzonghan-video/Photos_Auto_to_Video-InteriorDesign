@@ -5,10 +5,8 @@ import uuid
 
 import streamlit as st
 
-from studio.component import editor, payload
-from studio.export import capabilities, export_video
+from studio.bootstrap import video_modules
 from studio.models import MAX_PHOTOS, load_photo
-from studio.sync import consume_editor_event
 from studio.rendering import font_path, template_config
 from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
@@ -19,6 +17,15 @@ from studio.music import new_music, load_music
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
+try:
+    component_api, export_api, sync_api = video_modules()
+except (RuntimeError, ImportError, OSError) as exc:
+    st.error(str(exc))
+    st.caption('重新啟動會清除目前工作階段的照片與草稿；請先下載仍可取得的成果。')
+    st.stop()
+editor, payload = component_api.editor, component_api.payload
+capabilities, export_video = export_api.capabilities, export_api.export_video
+consume_editor_event = sync_api.consume_editor_event
 st.markdown("""<style>
 .block-container{max-width:1280px;padding-top:2rem;padding-bottom:2rem}
 h1{font-size:2rem!important;letter-spacing:.025em}h2{font-size:1.3rem!important}
@@ -272,10 +279,11 @@ ai_panel(photos, st.session_state)
 st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成後按「套用變更」；輸出前會自動套用最新設定。")
 try:
     if st.session_state.project_payload is None:
-        st.session_state.project_payload = payload(photos, st.session_state.editor_assets,
-                 st.session_state.overlay_assets, st.session_state.overlays,st.session_state.comparisons,
-                 st.session_state.template_mode,st.session_state.comparison_overlays,st.session_state.cover,
-                 st.session_state.music,st.session_state.music_asset)
+        st.session_state.project_payload = payload(photos, cache=st.session_state.editor_assets,
+                 assets=st.session_state.overlay_assets, overlays=st.session_state.overlays,
+                 comparisons=st.session_state.comparisons, template=st.session_state.template_mode,
+                 comparison_overlays=st.session_state.comparison_overlays, cover=st.session_state.cover,
+                 music=st.session_state.music, music_asset=st.session_state.music_asset)
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,

@@ -103,6 +103,8 @@ AI 分析會把照片副本傳送至 Google。免費方案可能使用輸入及�
 
 資料、限制及驗證詳見 [BGM說明](docs/BGM.md)。
 
+Cloud若顯示`payload() takes from 1 to 8 positional arguments but 10 were given`，是執行中的旧製片模組介面與新版app.py不一致。已加入啟動相容性檢查及必要時重載；更新後仍出現錯誤，先下載成果，再到`Manage app → ⋮ → Reboot app`重新啟動。重啟會清空工作階段照片與草稿，詳見 [版本修復說明](docs/BGM.md#cloud舊模組介面修復)。
+
 ## 片頭封面操作
 
 1. 加入照片後，第一張縮圖為「封面0.3秒」，兩套模板共用封面設定；可取消「加入片頭封面」。
