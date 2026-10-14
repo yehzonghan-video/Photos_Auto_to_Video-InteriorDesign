@@ -10,7 +10,7 @@ import time
 from .models import MAX_TOTAL_SECONDS
 from .rendering import crop_photo, label_tile, render_frame
 
-BGM_API_VERSION = 2
+BGM_API_VERSION = 3
 # 相容性重載時沿用現有輸出鎖，避免同時開啟第二個FFmpeg程序。
 RENDER_LOCK = globals().get('RENDER_LOCK', threading.Lock())
 
@@ -47,8 +47,9 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     if not sequence:raise ValueError("請先新增一組前後配對再輸出。")
     from .cover import validate_cover, cover_frame, DURATION
     cover=validate_cover(cover,photos);prefix=DURATION if cover['enabled'] else 0
-    from .body import body_layer
-    decoration=body_layer(cover) if cover['body']['enabled'] or cover['body']['logo_enabled'] else None
+    from .body import body_layer, title_visible
+    decoration=body_layer(cover,include_title=False) if cover['body']['logo_enabled'] else None
+    title_decoration=body_layer(cover,include_logo=False) if cover['body']['enabled'] else None
     duration = sum(p["duration"] if template=="compare" else p.duration for p in sequence)
     duration+=prefix
     if duration > MAX_TOTAL_SECONDS:
@@ -114,12 +115,17 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         else:
                             base=crop_photo(photo);labels=photo.labels;length=photo.duration
                             if decoration is not None:base.alpha_composite(decoration)
+                            title_base=base.copy() if title_decoration is not None else base
+                            if title_decoration is not None:title_base.alpha_composite(title_decoration)
                         tiles = [label_tile(label) for label in labels]
                         count = round(length * fps)
                         for index in range(count):
                             if template=="compare":base=comparison_frame(photo,frames,index/fps)
                             if template=="compare" and decoration is not None:base.alpha_composite(decoration)
-                            frame = render_frame(base, labels, tiles, index / fps, prepared, done / fps)
+                            show_title=title_decoration is not None and title_visible(cover['body'],done/fps,round(prefix*fps)/fps,total/fps)
+                            if template=="compare" and show_title:base.alpha_composite(title_decoration)
+                            current=title_base if template!='compare' and show_title else base
+                            frame = render_frame(current, labels, tiles, index / fps, prepared, done / fps)
                             write_frame(frame)
                     process.stdin.close()
                     code = process.wait(timeout=max(1, timeout - (time.monotonic() - started)))

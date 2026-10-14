@@ -9,7 +9,7 @@ from .rendering import font_path
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'cover-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'opening-template.png'
 DURATION = LAYOUT['duration']
-BGM_API_VERSION = 2
+BGM_API_VERSION = 3
 
 
 def new_cover():
@@ -37,7 +37,7 @@ def validate_cover(raw, photos):
     return result
 
 
-def validate_title(raw, required, context):
+def validate_title(raw, required, context, max_font_size=160):
     title=raw.get('title','')
     if not isinstance(title,str) or (required and not title.strip()) or len(title)>80 or title.count('\n')>5:
         raise ValueError(f'{context}標題需為1～80字，最多6行。')
@@ -49,7 +49,7 @@ def validate_title(raw, required, context):
             raise ValueError('請重新選取要改色的標題文字。')
         highlights.append(dict(start=r['start'],end=r['end'],color=color(r.get('color'))))
     return dict(title=title,color=color(raw.get('color','#ffffff')),
-                font_size=int(number(raw.get('font_size',120),36,160)),highlights=highlights)
+                font_size=int(number(raw.get('font_size',120),36,max_font_size)),highlights=highlights)
 
 
 def title_colors(cover):

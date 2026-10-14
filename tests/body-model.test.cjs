@@ -1,8 +1,25 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const B=require('../frontend/body-editor.js'),C=require('../frontend/cover-editor.js');
+const T=require('../frontend/timeline-model.js');
 const {DraftState}=require('../frontend/draft-state.js');
 const cover=()=>({enabled:true,title:'翻新🏠88萬',photo_id:'p',color:'#ffffff',font_size:120,
   highlights:[{start:3,end:5,color:'#ff0000'}],body:B.newBody()});
+test('正文時間軸使用全片時間，整段與左右邊界可拖曳，排除封面且自動跟隨片長',()=>{
+  const c=cover(),p=[{id:'p',duration:4,labels:[]},{id:'q',duration:4,labels:[]}];
+  assert.equal(c.body.font_size,120);assert.equal(B.item(c,.3,8.3).duration,8);
+  let item=B.item(c,.3,8.3);assert.equal(T.items(p,[],.3,item).filter(i=>i.type==='body_title').length,1);
+  T.edit(item,'right',-2,p,[],.3,c.body);assert.ok(Math.abs(c.body.end-6.3)<1e-8);assert.equal(c.body.auto_timing,false);
+  item=B.item(c,.3,8.3);T.edit(item,'move',1,p,[],.3,c.body);assert.ok(Math.abs(c.body.start-1.3)<1e-8);assert.ok(Math.abs(c.body.end-7.3)<1e-8);
+  item=B.item(c,.3,8.3);T.edit(item,'left',1,p,[],.3,c.body);assert.ok(Math.abs(c.body.start-2.3)<1e-8);
+  B.fit(c.body,.3,3.3);assert.equal(c.body.end,3.3);assert.equal(p[0].duration,4);
+  c.body.auto_timing=true;assert.equal(B.item(c,.3,12.3).duration,12);
+});
+test('正文預覽時間包含起點不含終點，舊預設升級一次且保留人工字級',()=>{
+  const b={...B.newBody(),auto_timing:false,start:.6,end:1.5};
+  assert.equal(B.visible(b,.5,.3,2.3),false);assert.equal(B.visible(b,.6,.3,2.3),true);assert.equal(B.visible(b,1.5,.3,2.3),false);
+  const old={font_size:88};assert.equal(B.upgrade(old),true);assert.equal(old.font_size,120);assert.equal(B.upgrade(old),false);
+  const manual={font_size:180};B.upgrade(manual);assert.equal(manual.font_size,180);
+});
 test('正文連動封面文字及Unicode局部色彩，取消連動複製後可獨立編輯',()=>{
   const c=cover();assert.equal(B.validate(c),null);
   assert.equal(B.effective(c).title,c.title);assert.equal(C.colors(B.effective(c))[3],'#ff0000');

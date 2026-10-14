@@ -13,15 +13,15 @@
   }
   function ensureSource(c,photos){if(!c||photos.some(p=>p.id===c.photo_id))return false;
     c.photo_id=(photos.find(p=>p.role==='after')||photos[0])?.id||'';return true;}
-  function validate(c,photos){if(!c)return null;
+  function validate(c,photos,maxFontSize=160){if(!c)return null;
     if(typeof c.enabled!=='boolean'||typeof c.title!=='string'||(c.enabled&&!c.title.trim())||Array.from(c.title).length>80||c.title.split('\n').length>6)return '封面標題需為1～80字，最多6行。';
     if(c.enabled&&photos.length&&!photos.some(p=>p.id===c.photo_id))return '請選擇封面照片。';
     const hex=v=>/^#[0-9a-fA-F]{6}$/.test(v);
-    if(!hex(c.color)||!Number.isInteger(c.font_size)||c.font_size<36||c.font_size>160||!Array.isArray(c.highlights)||c.highlights.length>80)return '封面樣式設定不正確。';
+    if(!hex(c.color)||!Number.isInteger(c.font_size)||c.font_size<36||c.font_size>maxFontSize||!Array.isArray(c.highlights)||c.highlights.length>80)return '封面樣式設定不正確。';
     for(const r of c.highlights)if(!Number.isInteger(r.start)||!Number.isInteger(r.end)||r.start<0||r.end<=r.start||r.end>Array.from(c.title).length||!hex(r.color))return '請重新選取要改色的標題文字。';
     return null;}
-  function raster(c,createCanvas,box=layout.title){const canvas=createCanvas();canvas.width=box.width;canvas.height=box.height;
-    const ctx=canvas.getContext('2d'),chars=Array.from(c.title);let size=Number.isFinite(c.font_size)?Math.max(12,Math.min(160,c.font_size)):120,lines,step;
+  function raster(c,createCanvas,box=layout.title,maxFontSize=160){const canvas=createCanvas();canvas.width=box.width;canvas.height=box.height;
+    const ctx=canvas.getContext('2d'),chars=Array.from(c.title);let size=Number.isFinite(c.font_size)?Math.max(12,Math.min(maxFontSize,c.font_size)):120,lines,step;
     while(true){ctx.font=`${size}px "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif`;lines=[];let line=[];
       chars.forEach((char,index)=>{if(char==='\n'){lines.push(line);line=[];return;}
         if(line.length&&ctx.measureText(line.map(v=>v.char).join('')+char).width>box.width-24){lines.push(line);line=[];}line.push({char,index});});lines.push(line);
@@ -35,6 +35,7 @@
     constructor(hooks){this.hooks=hooks;this.template=null;this.calibrated=null;this.local=null;this.selection=null;this.scene=null;
       $('coverEnabled').onchange=()=>{const c=hooks.cover();if(!c||hooks.locked())return;const prior=duration(c);c.enabled=$('coverEnabled').checked;
         const delta=duration(c)-prior;for(const slot of hooks.slots())for(const o of slot)o.start=Math.max(0,o.start+delta);
+        if(c.body?.auto_timing===false){c.body.start=Math.max(0,c.body.start+delta);c.body.end=Math.max(0,c.body.end+delta);}
         hooks.change();};
       $('coverTitle').oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.title=$('coverTitle').value;c.highlights=[];this.selection=null;hooks.change();};
       const capture=()=>{this.selection=selection($('coverTitle'),this.selection);

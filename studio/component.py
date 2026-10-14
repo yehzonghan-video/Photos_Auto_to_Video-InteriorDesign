@@ -10,7 +10,7 @@ from .cover import validate_cover, template_bytes, title_tile, LAYOUT
 from .music import validate_music
 from .body import LAYOUT as BODY_LAYOUT, effective_title, template_bytes as body_template_bytes
 
-BGM_API_VERSION = 2
+BGM_API_VERSION = 3
 
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
@@ -71,8 +71,9 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
     if photos:
         cached=cache.setdefault('__body__',{})
         style=effective_title(cover)
-        if cached.get('style')!=style:
-            cached.update(style=style,title=data_url(title_tile(style,BODY_LAYOUT['title'])))
+        signature={**style,'layout':BODY_LAYOUT['title']}
+        if cached.get('style')!=signature:
+            cached.update(style=signature,title=data_url(title_tile(style,BODY_LAYOUT['title'])))
         body_assets.update(title=cached['title'],template='data:image/png;base64,'+base64.b64encode(body_template_bytes()).decode('ascii'))
     music=validate_music(music,music_asset)
     music_data=None

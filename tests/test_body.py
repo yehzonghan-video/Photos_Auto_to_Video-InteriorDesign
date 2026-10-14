@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from PIL import Image, ImageChops, ImageStat
 from studio.cover import new_cover, validate_cover, cover_frame, title_tile
-from studio.body import LAYOUT, body_layer, effective_title
+from studio.body import LAYOUT, body_layer, effective_title, title_span, title_visible, upgrade_body
 from studio.component import payload
 from studio.sync import consume_editor_event
 from studio.comparison import new_comparison, comparison_frame, prepare_comparison
@@ -17,6 +17,49 @@ from tests.test_cover import photo
 
 
 class BodyTests(unittest.TestCase):
+    def test_timing_validation_bounds_and_default_size_upgrade(self):
+        p=photo();c=new_cover();self.assertEqual(c['body']['font_size'],120)
+        b=c['body'];self.assertEqual(title_span(b,.3,2.3),(.3,2.3))
+        b.update(auto_timing=False,start=.6,end=1.5,font_size=240)
+        c=validate_cover(c,[p]);self.assertEqual(c['body']['font_size'],240)
+        self.assertFalse(title_visible(c['body'],.5,.3,2.3));self.assertTrue(title_visible(c['body'],.6,.3,2.3));self.assertFalse(title_visible(c['body'],1.5,.3,2.3))
+        self.assertEqual(title_span(c['body'],.3,1),(.6,1))
+        for change in ({'auto_timing':'true'},{'start':float('nan')},{'start':'1'},{'start':True},{'end':None},{'start':2,'end':1},{'start':0,'end':.01}):
+            with self.subTest(change=change),self.assertRaises(ValueError):validate_cover({**c,'body':{**c['body'],**change}},[p])
+        old={'font_size':88};upgrade_body(old);self.assertEqual(old['font_size'],120);old['font_size']=140;upgrade_body(old);self.assertEqual(old['font_size'],140)
+        manual={'font_size':180};upgrade_body(manual);self.assertEqual(manual['font_size'],180)
+
+    def test_custom_time_survives_batch_sync_without_changing_photo_duration(self):
+        p=photo();state=dict(photos=[p],editor_session='s',revision=1,cover=validate_cover(new_cover(),[p]))
+        c=copy.deepcopy(state['cover']);c['body'].update(auto_timing=False,start=.6,end=1.,font_size=180)
+        event=dict(nonce='title-time',session='s',base_revision=1,action='apply',photos=[p.metadata()],cover=c)
+        consume_editor_event(state,event);self.assertTrue(state['editor_response']['ok'])
+        self.assertEqual(state['cover']['body']['start'],.6);self.assertEqual(state['cover']['body']['end'],1.)
+        self.assertEqual(p.duration,1);self.assertEqual(payload([p],cover=state['cover'])['cover']['body']['font_size'],180)
+
+    def test_real_timed_title_crosses_photos_and_clips_and_logo_remains(self):
+        a,b=photo('before.png','red',(108,192)),photo('after.png','blue',(108,192));a.role='before';b.role='after';photos=[a,b]
+        c=validate_cover(new_cover(),photos);c['body'].update(auto_timing=False,start=.6,end=1.5)
+        clips=[new_comparison(a,b),new_comparison(a,b)]
+        for clip in clips:clip.update(duration=1,before_time=.1,transition_time=.2,labels=[])
+        logo=body_layer(c,include_title=False);title=body_layer(c,include_logo=False);box=LAYOUT['title']
+        crop=(box['x'],box['y'],box['x']+box['width'],box['y']+box['height'])
+        with tempfile.TemporaryDirectory(prefix='timed-title-') as folder:
+            for template in ('items','compare'):
+                video=Path(folder)/(template+'.mp4');video.write_bytes(export_video(photos,cover=c,template=template,comparisons=clips))
+                for n,shown in ((15,False),(18,True),(38,True),(45,False)):
+                    target=Path(folder)/f'{template}-{n}.png'
+                    subprocess.run([ffmpeg_path(),'-y','-i',str(video),'-vf',f'select=eq(n\\,{n})','-frames:v','1',str(target)],capture_output=True,check=True,timeout=60)
+                    local=(n-9)/30;index=0 if local<1 else 1
+                    base=comparison_frame(clips[index],prepare_comparison(clips[index],photos),local-index) if template=='compare' else crop_photo(photos[index])
+                    base.alpha_composite(logo)
+                    if shown:base.alpha_composite(title)
+                    with Image.open(target) as actual:
+                        expected=base.convert('RGB');delta=ImageChops.difference(expected.convert('L').crop(crop),actual.convert('L').crop(crop))
+                        self.assertLess(ImageStat.Stat(delta).mean[0],4)
+                        delta=ImageChops.difference(expected.convert('L').crop((700,195,965,390)),actual.convert('L').crop((700,195,965,390)))
+                        self.assertLess(ImageStat.Stat(delta).mean[0],4,'LOGO不跟隨文字裁切時間消失')
+
     def test_follow_colors_independent_title_and_validation(self):
         p=photo();c=new_cover();c.update(title='老屋88萬',highlights=[dict(start=2,end=4,color='#ff0000')])
         c=validate_cover(c,[p]);self.assertEqual(effective_title(c)['highlights'][0]['color'],'#ff0000')

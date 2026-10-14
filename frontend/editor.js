@@ -7,6 +7,7 @@ let musicAsset=null,musicPreparing=false,playGeneration=0;
 const musicPlayer=new StudioMusic.MusicPlayer();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
 let showSafeArea=true,guideKind=null;
+let bodySelected=false;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
 const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
 const waiters=new Map();
@@ -55,7 +56,7 @@ function validProject() {
 function persistDraft() {
   if(!draft.session)return;
   draft.coverSeconds=StudioCover.duration(draft.cover);
-  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea})));storageFailed=false;}
+  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea,bodySelected})));storageFailed=false;}
   catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
 window.addEventListener('pagehide',()=>{persistDraft();musicPlayer.stop();});
@@ -72,12 +73,15 @@ function markEdited(persist=true) {
   draft.touch(photos);clearBrowserResult();
   comparisonEditor.prune();
   StudioCover.ensureSource(draft.cover,photos);
+  StudioBody.fit(draft.cover?.body,coverDuration(),total());
   StudioTimeline.clampOverlays(draft.overlays,StudioTimeline.total(photos)+coverDuration());
   StudioTimeline.clampOverlays(draft.comparisonOverlays,StudioTimeline.total(draft.comparisons)+coverDuration());
   if(!sequence().some(p=>p.id===selectedPhoto)){selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;}
   time=clamp(time,0,Math.max(0,total()-1/30));
   const active=pngEditor.item();
-  if(editing&&active&&!pngEditor.active(active)){time=active.start;selectedPhoto=locate(time).photo?.id;}
+  if(editing&&bodySelected&&draft.cover?.body?.enabled){const range=StudioBody.span(draft.cover.body,coverDuration(),total());
+    if(time<range.start||time>=range.end){time=range.start;selectedPhoto=locate(time).photo?.id;}}
+  else if(editing&&active&&!pngEditor.active(active)){time=active.start;selectedPhoto=locate(time).photo?.id;}
   else if(editing&&!active&&photo())time=clamp(time,photoOffset(photo().id),photoOffset(photo().id)+photo().duration-1/30);
   if(selectedPhoto!==priorPhoto){selectedLabel=photo()?.labels[0]?.id;buildLabels();buildPhotos();}
   if(persist)persistDraft();
@@ -123,6 +127,7 @@ window.addEventListener('message', async event => {
           selectedPhoto=saved.selection?.selectedPhoto;selectedLabel=saved.selection?.selectedLabel;
           pngEditor.selected=saved.selection?.selectedOverlay||null;time=saved.selection?.time||0;
           showSafeArea=saved.selection?.showSafeArea??true;$('showSafeArea').checked=showSafeArea;
+          bodySelected=saved.selection?.bodySelected??false;
           if(draft.pending&&args.response?.nonce!==draft.pending.nonce){draft.pending=null;draft.dirty=true;}
         }
       }catch(error){sessionStorage.removeItem(storageKey);}
@@ -136,6 +141,7 @@ window.addEventListener('message', async event => {
                               args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null,args.project.music||null);
     if(result.stale)return;
     if(draft.cover&&!draft.cover.body)draft.cover.body=StudioBody.newBody();
+    if(StudioBody.upgrade(draft.cover?.body))draft.touch(draft.rows);
     draft.music??=StudioMusic.newMusic();
     const newMusicAsset=args.project.music_asset||null;
     if(musicAsset?.id!==newMusicAsset?.id){stopPlayback();clearBrowserResult();$('musicPanel').open=!!newMusicAsset;}
@@ -146,8 +152,10 @@ window.addEventListener('message', async event => {
     else if(localCoverTiming&&draft.dirty&&draft.cover?.enabled&&priorCoverSeconds!==coverDuration()){
       const delta=coverDuration()-priorCoverSeconds;
       for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start=Math.max(0,o.start+delta);
+      if(draft.cover.body?.auto_timing===false){draft.cover.body.start=Math.max(0,draft.cover.body.start+delta);draft.cover.body.end=Math.max(0,draft.cover.body.end+delta);}
       time=Math.max(0,time+delta);draft.touch(photos);
     }
+    StudioBody.fit(draft.cover?.body,coverDuration(),total());
     if(StudioCover.ensureSource(draft.cover,photos))draft.touch(photos);
     comparisonEditor.prune();
     // 舊工作階段的標題只升級一次；沿用草稿同步，避免覆蓋未套用的人工內容。
@@ -246,7 +254,7 @@ function buildLabels() {
   const p=photo(); if(!p)return;
   if (!p.labels.length) $('labels').textContent = p.type==='cover'?'封面標題使用上方設定。':'尚無標籤，先新增一個裝修項目。';
   p.labels.forEach(l => $('labels').append(button(l.text, () => {
-    pngEditor.selected=null;selectedLabel=l.id;
+    bodySelected=false;pngEditor.selected=null;selectedLabel=l.id;
     if(isCompare()&&l.comparison_side){stopPlayback();editing=true;comparisonEditor.view='combined';
       time=photoOffset(p.id)+(l.comparison_side==='before'?0:p.before_time);}
     persistDraft();buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
@@ -272,6 +280,7 @@ function fillForm() {
   fillMusic();
   coverEditor.refresh();
   bodyEditor.refresh();
+  if(bodySelected)$('bodyPanel').open=true;
   comparisonEditor.refresh();
   $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
   $('edit').textContent=isCompare()?'編輯對比片段':'編輯目前照片';
@@ -330,7 +339,7 @@ function draw() {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
     ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
   }
-  if(p.type!=='cover')bodyEditor.draw(ctx);
+  if(p.type!=='cover')bodyEditor.draw(ctx,time);
   const materials=p.labels.map((l,index)=>({layer:l.layer??10,index,label:l})).concat(projectOverlays().map((o,index)=>({layer:o.layer,index:p.labels.length+index,overlay:o})));
   for(const item of materials.sort((a,b)=>a.layer-b.layer||a.index-b.index)) {
     if(item.overlay){pngEditor.draw(ctx,item.overlay,time,editing);continue;}
@@ -371,7 +380,7 @@ $('canvas').addEventListener('pointerdown',e=>{
     if(!l.comparison_side&&Math.hypot(xy.x-l.point_x*W,xy.y-l.point_y*H)<42) {dragging={type:'point',id:l.id,dx:0,dy:0};break;}
     if(xy.x>=b.x&&xy.x<=b.x+b.width&&xy.y>=b.y&&xy.y<=b.y+b.height) {dragging={type:'label',id:l.id,dx:xy.x-b.x,dy:xy.y-b.y};break;}
   }
-  if(dragging) {e.preventDefault();pngEditor.selected=null;selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
+  if(dragging) {e.preventDefault();bodySelected=false;pngEditor.selected=null;selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
 });
 $('canvas').addEventListener('pointermove',e=>{
   if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e);
@@ -525,7 +534,9 @@ function photoOffset(id){let t=0;for(const p of sequence()){if(p.id===id)return 
 function seekTime(value,edit=false){if(recording||preparing||serverBusy)return;stopPlayback();time=clamp(StudioTimeline.snap(value),0,Math.max(0,total()-1/30));editing=edit;
   const p=locate(time).photo;if(p&&p.id!==selectedPhoto){selectedPhoto=p.id;selectedLabel=p.labels[0]?.id;buildPhotos();buildLabels();fillForm();}draw();persistDraft();}
 function selectMaterial(item){if(recording||preparing||serverBusy)return;stopPlayback();editing=true;
+  bodySelected=item.type==='body_title';
   if(item.type==='png'){pngEditor.selected=item.id;selectedLabel=null;seekTime(item.start,true);}
+  else if(item.type==='body_title'){pngEditor.selected=null;seekTime(item.start,true);selectedLabel=null;}
   else {pngEditor.selected=null;selectedPhoto=item.source;selectedLabel=item.type==='label'?item.id:photo()?.labels[0]?.id;time=item.start;}
   buildPhotos();buildLabels();fillForm();draw();persistDraft();}
 const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photos,clips:()=>draft.comparisons,current:()=>photo()?.type==='cover'?null:photo(),
@@ -540,14 +551,15 @@ const pngEditor=new StudioPNG.PNGEditor({overlays:projectOverlays,assets:()=>ass
 const coverEditor=new StudioCover.CoverEditor({cover:()=>draft.cover,photos:()=>photos,images:()=>imageCache,slots:()=>[draft.overlays,draft.comparisonOverlays],
   viewing:()=>photo()?.type==='cover',
   locked:()=>recording||preparing||serverBusy,status,choose:()=>selectMaterial({type:'cover',id:'project-cover',source:'project-cover',start:0}),
-  change:()=>{stopPlayback();editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});
-const bodyEditor=new StudioBody.BodyEditor({cover:()=>draft.cover,locked:()=>recording||preparing||serverBusy,status,
-  change:()=>{stopPlayback();editing=true;guideKind=null;
+  change:()=>{stopPlayback();bodySelected=false;editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});
+const bodyEditor=new StudioBody.BodyEditor({cover:()=>draft.cover,prefix:coverDuration,length:total,locked:()=>recording||preparing||serverBusy,status,
+  change:()=>{stopPlayback();bodySelected=true;editing=true;guideKind=null;
     if(photo()?.type==='cover'&&bodySequence().length){selectedPhoto=bodySequence()[0].id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=coverDuration();buildPhotos();buildLabels();}
     markEdited();fillForm();draw();}});
 const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:bodySequence,offset:coverDuration,overlays:projectOverlays,time:()=>time,
+  body:()=>draft.cover?.body,title:()=>StudioBody.item(draft.cover,coverDuration(),total()),
   locked:()=>recording||preparing||serverBusy,seek:seekTime,select:selectMaterial,
-  selected:item=>item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
+  selected:item=>item.type==='body_title'?bodySelected:item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
   change:persist=>{stopPlayback();editing=true;markEdited(persist);buildPhotos();fillForm();draw();}});
 $('timelineZoom').oninput=()=>{timeline.zoom=Number($('timelineZoom').value);timeline.draw();};
 function stack(front){if(recording||preparing||serverBusy)return;const selected=pngEditor.item()||label();if(!selected)return;

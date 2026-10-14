@@ -3,7 +3,7 @@
   const Comparison=typeof module!=='undefined'?require('./comparison-model.js'):root.StudioComparison;
   const FPS=30,MIN=1/FPS,clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),snap=v=>Math.round(v*FPS)/FPS;
   const total=photos=>photos.reduce((n,p)=>n+p.duration,0);
-  function items(photos,overlays=[],prefix=0){
+  function items(photos,overlays=[],prefix=0,bodyTitle=null){
     let offset=prefix;const result=prefix?[{id:'project-cover',type:'cover',source:'project-cover',start:0,duration:prefix,layer:0,name:'片頭封面'}]:[];
     for(const p of photos){
       result.push({id:p.id,type:p.type==='comparison'?'comparison':'photo',source:p.id,start:offset,duration:p.duration,layer:0,name:p.name});
@@ -11,6 +11,7 @@
         duration:l.end-l.start,layer:l.layer??10,name:l.text});
       offset+=p.duration;
     }
+    if(bodyTitle)result.push(bodyTitle);
     return result.concat(overlays.map(o=>({...o,name:o.name||'PNG'})));
   }
   function fitAnimations(o){
@@ -25,8 +26,9 @@
     p.duration=clamp(snap(value),1,20);
     for(const l of p.labels){l.start=Math.min(l.start,p.duration-MIN);l.end=Math.max(l.start+MIN,Math.min(l.end,p.duration));l.enter=Math.min(l.enter,l.end-l.start);}
   }
-  function edit(item,mode,delta,photos,overlays,prefix=0){
+  function edit(item,mode,delta,photos,overlays,prefix=0,body=null){
     if(item.type==='cover')return;
+    if(item.type==='body_title'&&!body)return;
     delta=snap(delta);
     const p=photos.find(p=>p.id===item.source);
     if(['photo','comparison'].includes(item.type)){
@@ -42,13 +44,14 @@
       }
       clampOverlays(overlays,total(photos)+prefix);return;
     }
-    const startBound=item.type==='label'?items(photos,[],prefix).find(i=>['photo','comparison'].includes(i.type)&&i.id===p.id).start:0;
+    const startBound=item.type==='body_title'?prefix:item.type==='label'?items(photos,[],prefix).find(i=>['photo','comparison'].includes(i.type)&&i.id===p.id).start:0;
     const endBound=item.type==='label'?startBound+p.duration:total(photos)+prefix;
     let start=item.start,end=item.start+item.duration;
     if(mode==='move'){start=clamp(start+delta,startBound,endBound-item.duration);end=start+item.duration;}
     else if(mode==='left')start=clamp(start+delta,startBound,end-MIN);
     else end=clamp(end+delta,start+MIN,endBound);
     if(item.type==='label'){const l=p.labels.find(l=>l.id===item.id);l.start=start-startBound;l.end=end-startBound;l.enter=Math.min(l.enter,l.end-l.start);if(l.exit)l.exit=Math.min(l.exit,l.end-l.start);if(l.comparison_side)l.auto_timing=false;}
+    else if(item.type==='body_title'){body.auto_timing=false;body.start=start;body.end=end;}
     else {const o=overlays.find(o=>o.id===item.id);o.start=start;o.duration=end-start;fitAnimations(o);}
   }
   function lanes(clips){

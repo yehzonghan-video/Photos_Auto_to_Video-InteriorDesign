@@ -65,6 +65,29 @@ test('BGM音量與淡出連續修改不送Python，rerun／重建保留，輸出
   assert.equal(sent.music.volume,.3);assert.equal(sent.music.fade_out,2);assert.equal(sent.music.source,'audio');
 });
 
+test('正文時間軸拖移與兩端裁切不送Python，字級可到240，切圖／rerun／輸出保存最新時間',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id);
+  const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
+  await env.receive({project});assert.equal(get('bodySize').value,120);assert.equal(get('bodyStart').value,.3);
+  get('bodyEnd').value='6';get('bodyEnd').oninput();
+  function drag(mode,delta){const hit=vm.runInContext('timeline.hits.find(h=>h.item.type==="body_title")',env.context);
+    const tc=get('timelineCanvas'),px=vm.runInContext('timeline.px',env.context);
+    const x=(mode==='left'?hit.x+2:mode==='right'?hit.x+hit.w-2:hit.x+hit.w/2)*1080/tc.width,y=(hit.y+10)*1920/tc.height;
+    tc.dispatch('pointerdown',{clientX:x,clientY:y});
+    for(let i=1;i<=100;i++)tc.dispatch('pointermove',{clientX:x+delta*px*1080/tc.width*i/100,clientY:y});tc.dispatch('pointerup');}
+  drag('right',.5);drag('left',.5);drag('move',1);
+  assert.ok(Math.abs(vm.runInContext('draft.cover.body.start',env.context)-1.8)<1e-8);
+  assert.ok(Math.abs(vm.runInContext('draft.cover.body.end',env.context)-7.5)<1e-8);
+  get('bodySize').value='240';get('bodySize').oninput();assert.equal(env.changes().length,0);
+  get('photos').children[2].onclick();get('photos').children[1].onclick();
+  await env.receive({project,revision:2});const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.equal(vm.runInContext('draft.cover.body.font_size',rebuilt.context),240);
+  await rebuilt.receive({project,revision:2,export_request:'timed-title'});const sent=rebuilt.changes()[0].value;
+  assert.equal(sent.cover.body.auto_timing,false);assert.ok(Math.abs(sent.cover.body.start-1.8)<1e-8);assert.ok(Math.abs(sent.cover.body.end-7.5)<1e-8);
+  assert.equal(sent.photos[0].duration,4);assert.equal(sent.photos[1].duration,4);
+});
+
 test('正文跟隨封面文字／字色、100次独立修改均本地，rerun／重建保留並批次輸出',async()=>{
   const env=environment(),get=id=>env.elements.get(id);
   const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};

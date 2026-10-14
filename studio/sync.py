@@ -6,7 +6,7 @@ from .comparison import validate_comparisons
 from .cover import validate_cover, DURATION
 from .music import validate_music
 
-BGM_API_VERSION = 2
+BGM_API_VERSION = 3
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -61,6 +61,9 @@ def consume_editor_event(state, event):
         raw_cover=event.get('cover',state.get('cover'))
         if isinstance(raw_cover,dict) and 'body' not in raw_cover and isinstance(state.get('cover'),dict):
             raw_cover={**raw_cover,'body':state['cover'].get('body')}  # 舊頁面事件不清除新的正文設定。
+        elif isinstance(raw_cover,dict) and isinstance(raw_cover.get('body'),dict) and not any(key in raw_cover['body'] for key in ('auto_timing','start','end')):
+            previous=state.get('cover',{}).get('body',{})
+            raw_cover={**raw_cover,'body':{**raw_cover['body'],**{key:previous[key] for key in ('auto_timing','start','end') if key in previous}}}
         if 'cover' not in event and isinstance(raw_cover,dict) and raw_cover.get('photo_id') not in {p.id for p in staged}:
             raw_cover={**raw_cover,'photo_id':''}  # 舊版事件刪除來源時，自動改選可用照片。
         cover=validate_cover(raw_cover,staged)
