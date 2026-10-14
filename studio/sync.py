@@ -4,6 +4,7 @@ from .overlays import validate_overlays
 from dataclasses import replace
 from .comparison import validate_comparisons
 from .cover import validate_cover, DURATION
+from .music import validate_music
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -59,6 +60,7 @@ def consume_editor_event(state, event):
         if 'cover' not in event and isinstance(raw_cover,dict) and raw_cover.get('photo_id') not in {p.id for p in staged}:
             raw_cover={**raw_cover,'photo_id':''}  # 舊版事件刪除來源時，自動改選可用照片。
         cover=validate_cover(raw_cover,staged)
+        music=validate_music(event.get('music',state.get('music')),state.get('music_asset'))
         prefix=DURATION if cover['enabled'] and staged else 0
         duration=sum(p.duration for p in staged)+prefix
         if (sum(c['duration'] for c in clips) if template=='compare' else sum(p.duration for p in staged))+prefix>120:
@@ -76,6 +78,7 @@ def consume_editor_event(state, event):
         state["comparisons"]=clips
         state["comparison_overlays"]=comparison_overlays
         state['cover']=cover
+        state['music']=music
         acknowledgements = event.get("imported_batches", [])
         if isinstance(acknowledgements, list):
             state["ai_imports"] = [batch for batch in state.get("ai_imports", [])

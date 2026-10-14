@@ -12,7 +12,7 @@
       ...remote.filter(row => !old.has(row.id))];
   }
   class DraftState {
-    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];this.overlays=[];this.comparisons=[];this.comparisonOverlays=[];this.template='items';this.cover=null;this.coverSeconds=null;}
+    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];this.overlays=[];this.comparisons=[];this.comparisonOverlays=[];this.template='items';this.cover=null;this.coverSeconds=null;this.music=null;}
     restore(saved, session) {
       if (!saved || saved.session!==session || !Array.isArray(saved.rows)) return false;
       Object.assign(this, saved); this.rows=clone(saved.rows);return true;
@@ -23,18 +23,20 @@
       this.pending={nonce,seq:this.seq};
       return {session:this.session,base_revision:this.revision,nonce,action,request,seq:this.seq,photos:metadata(this.rows),
         overlays:clone(this.overlays),comparisons:metadata(this.comparisons),comparison_overlays:clone(this.comparisonOverlays),
-        cover:clone(this.cover),template_id:this.template,schema_version:4,imported_batches:[...this.imported]};
+        cover:clone(this.cover),music:clone(this.music),template_id:this.template,schema_version:4,imported_batches:[...this.imported]};
     }
-    receive(rows, session, revision, response, overlays=[], comparisons=[], comparisonOverlays=[],cover=null) {
+    receive(rows, session, revision, response, overlays=[], comparisons=[], comparisonOverlays=[],cover=null,music=null) {
       if(this.session!==session) {
         this.session=session;this.revision=revision;this.seq=0;this.dirty=false;this.pending=null;this.deleted=[];this.imported=[];this.rows=rows;this.overlays=clone(overlays);this.comparisons=comparisons;this.comparisonOverlays=clone(comparisonOverlays);
-        this.cover=clone(cover);return {fresh:true};
+        this.cover=clone(cover);this.music=clone(music);return {fresh:true};
       }
       if(revision<this.revision)return {stale:true};
       const matched=this.pending&&response?.nonce===this.pending.nonce;
       const success=matched&&response.ok;
       const newer=matched&&this.seq!==this.pending.seq;
       if((success&&!newer)||(!this.dirty&&!this.pending)||this.cover===null)this.cover=clone(cover);
+      if((success&&!newer)||(!this.dirty&&!this.pending)||this.music===null)this.music=clone(music);
+      else if(music)this.music.source=music.source; // 上傳／移除採伺服器來源，未套用音量與淡出仍保留。
       if(success&&!newer) {this.rows=rows;this.overlays=clone(overlays);this.comparisons=comparisons;this.comparisonOverlays=clone(comparisonOverlays);this.dirty=false;this.deleted=[];}
       else if(this.dirty||this.pending) {
         this.rows=merge(this.rows,rows.filter(row=>!this.deleted.includes(row.id)));
@@ -47,7 +49,7 @@
     persisted(selection={}) {
       return {session:this.session,revision:this.revision,seq:this.seq,dirty:this.dirty,pending:this.pending,
         deleted:this.deleted,imported:this.imported,rows:metadata(this.rows),overlays:clone(this.overlays),
-        comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),coverSeconds:this.coverSeconds,template:this.template,selection};
+        comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),coverSeconds:this.coverSeconds,music:clone(this.music),template:this.template,selection};
     }
   }
   const api={DraftState,metadata};

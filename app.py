@@ -15,6 +15,7 @@ from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 from studio.photo_processing import fit_session
 from studio.access import require_password, logout
 from studio.cover import new_cover, DURATION
+from studio.music import new_music, load_music
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
@@ -36,7 +37,8 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
                 ai_queue=[], ai_delivered={}, ai_pending={}, overlays=[], png_epoch=0,
                 comparisons=[], comparison_overlays=[], template_mode="items", last_template="items",
-                photo_upload_epochs={"general":0,"before":0,"after":0},cover=new_cover())
+                photo_upload_epochs={"general":0,"before":0,"after":0},cover=new_cover(),
+                music=new_music(),music_asset=None,music_epoch=0)
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -48,6 +50,8 @@ st.session_state.cover_duration=DURATION
 if st.session_state.get('cover_version')!=2:
     st.session_state.cover_version=2;st.session_state.project_payload=None
     st.session_state.editor_assets={};st.session_state.output=None
+if st.session_state.get('music_version')!=1:
+    st.session_state.music_version=1;st.session_state.project_payload=None
 if "overlay_assets" not in st.session_state:
     st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
 if st.session_state.get("photo_preview_version") != 1:
@@ -137,6 +141,7 @@ with st.sidebar:
         st.session_state.overlays = []
         st.session_state.comparisons=[];st.session_state.comparison_overlays=[]
         st.session_state.cover=new_cover()
+        st.session_state.music=new_music();st.session_state.music_asset=None;st.session_state.music_epoch+=1
         st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
         st.session_state.png_epoch += 1
         for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
@@ -243,6 +248,25 @@ with st.expander("上傳 PNG 素材（透明 LOGO、箭頭、價格框）", expa
     for warning in st.session_state.get("asset_warnings", []):
         st.warning(warning)
 
+with st.expander('背景音樂 BGM（預設1秒淡出）', expanded=False):
+    st.caption('請上傳有權使用的音樂；只保存在目前工作階段。單檔20 MB，最長保留前120秒。音量與淡出在下方編輯器設定。')
+    music_file=st.file_uploader('選擇BGM',type=['mp3','wav','m4a','ogg','flac'],max_upload_size=20,
+                              key=f'music_upload_{st.session_state.music_epoch}')
+    add_music,remove_music=st.columns(2)
+    music_locked=st.session_state.editor_busy or st.session_state.pending_export is not None
+    if add_music.button('加入／替換BGM',disabled=not music_file or music_locked):
+        try:
+            with st.spinner('正在處理音樂…'):asset=load_music(music_file.name,music_file.getvalue())
+            st.session_state.music_asset=asset;st.session_state.music={**st.session_state.music,'source':asset.id}
+            st.session_state.music_epoch+=1;invalidate();st.rerun()
+        except (ValueError,RuntimeError,OSError) as exc:st.error(str(exc))
+    if remove_music.button('移除BGM',disabled=st.session_state.music_asset is None or music_locked):
+        st.session_state.music_asset=None;st.session_state.music={**st.session_state.music,'source':None}
+        st.session_state.music_epoch+=1;invalidate();st.rerun()
+    if st.session_state.music_asset:
+        asset=st.session_state.music_asset
+        st.caption(f'目前：{asset.name} · {asset.duration:.1f}秒'+('（已取前120秒）' if asset.truncated else ''))
+
 st.subheader("02　編輯畫面、PNG 與時間軸")
 ai_panel(photos, st.session_state)
 st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成後按「套用變更」；輸出前會自動套用最新設定。")
@@ -250,7 +274,8 @@ try:
     if st.session_state.project_payload is None:
         st.session_state.project_payload = payload(photos, st.session_state.editor_assets,
                  st.session_state.overlay_assets, st.session_state.overlays,st.session_state.comparisons,
-                 st.session_state.template_mode,st.session_state.comparison_overlays,st.session_state.cover)
+                 st.session_state.template_mode,st.session_state.comparison_overlays,st.session_state.cover,
+                 st.session_state.music,st.session_state.music_asset)
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,
@@ -288,7 +313,8 @@ if job:
                             progress=lambda value, message: bar.progress(value, text=message),
                             overlays=st.session_state.comparison_overlays if compare_mode else st.session_state.overlays,
                             assets=st.session_state.overlay_assets,template=st.session_state.template_mode,
-                            comparisons=st.session_state.comparisons,cover=st.session_state.cover)
+                            comparisons=st.session_state.comparisons,cover=st.session_state.cover,
+                            music=st.session_state.music,music_asset=st.session_state.music_asset)
         st.session_state.output = data
         st.session_state.output_seconds = round(time.monotonic() - started, 1)
     except (RuntimeError, ValueError, OSError, TimeoutError) as exc:

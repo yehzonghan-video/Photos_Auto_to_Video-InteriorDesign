@@ -34,7 +34,7 @@ def capabilities():
 
 
 def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout=300, overlays=None, assets=None,
-                 template="items", comparisons=None, cover=None):
+                 template="items", comparisons=None, cover=None, music=None, music_asset=None):
     if not photos:
         raise ValueError("請先上傳照片。")
     if (width, height) not in ((360, 640), (720, 1280), (1080, 1920)) or fps != 30:
@@ -50,6 +50,10 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     if duration > MAX_TOTAL_SECONDS:
         raise ValueError("影片最長 120 秒。")
     binary = capabilities()["binary"]
+    from .music import validate_music, audio_filter
+    music = validate_music(music, music_asset)
+    has_music = music['enabled'] and music['source'] is not None
+    total = sum(round((p['duration'] if template=='compare' else p.duration)*fps) for p in sequence)+round(prefix*fps)
     from .overlays import prepare_overlays, validate_overlays
     validated = validate_overlays(overlays or [], assets or {}, duration)
     if not RENDER_LOCK.acquire(blocking=False):
@@ -59,13 +63,22 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     started = time.monotonic()
     try:
         prepared = prepare_overlays(validated, assets or {})
-        # 只有壓縮影片與 FFmpeg 診斷使用暫存檔，所有路徑都在 finally 清除。
+        # 壓縮影片、BGM與FFmpeg診斷均使用暫存檔，離開區塊一律清除。
         with tempfile.TemporaryDirectory(prefix="interior-video-") as folder:
             target = Path(folder) / "case.mp4"
             with (Path(folder) / "encoder.log").open("w+b") as log:
                 command = [binary, "-hide_banner", "-loglevel", "error", "-y",
                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
-                           "-r", str(fps), "-i", "pipe:0", "-an", "-c:v", "libx264",
+                           "-r", str(fps), "-i", "pipe:0"]
+                if has_music:
+                    audio_path = Path(folder)/'bgm.wav';audio_path.write_bytes(music_asset.data)
+                    if music['loop']:command += ['-stream_loop', '-1']
+                    command += ['-i', str(audio_path), '-map', '0:v:0', '-map', '1:a:0',
+                                '-af', audio_filter(music, music_asset.duration, total/fps),
+                                '-c:a', 'aac', '-b:a', '192k', '-t', f'{total/fps:.9f}']
+                else:
+                    command += ['-an']
+                command += ["-c:v", "libx264",
                            "-preset", "veryfast", "-threads", "2", "-crf", "20",
                            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(target)]
                 process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
@@ -75,7 +88,6 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         process.kill()
                 timer = threading.Thread(target=watchdog, daemon=True)
                 timer.start()
-                total = sum(round((p["duration"] if template=="compare" else p.duration) * fps) for p in sequence)+round(prefix*fps)
                 done = 0
                 try:
                     def write_frame(frame):

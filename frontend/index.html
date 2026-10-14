@@ -42,6 +42,15 @@
         <label class="field">封面字級<input id="coverSize" type="range" min="36" max="160" step="1"></label>
         <p class="hint">最多80字／6行；過長會自動縮字。修改標題會重設局部色彩。標題與照片各有安全框；提示框不輸出。</p>
       </details>
+      <details id="musicPanel">
+        <summary>BGM · 預設1秒淡出</summary>
+        <p id="musicName" class="hint">請先在上方加入BGM。</p>
+        <label class="check"><input id="musicEnabled" type="checkbox">啟用BGM</label>
+        <label class="field">BGM音量 <output id="musicVolumeText"></output><input id="musicVolume" type="range" min="0" max="100" step="1"></label>
+        <label class="field">BGM結尾淡出（秒）<input id="musicFade" type="number" min="0" max="10" step=".1" value="1"></label>
+        <label class="check"><input id="musicLoop" type="checkbox">音樂不足時循環播放</label>
+        <p class="hint">從影片開頭播放，含片頭。淡出預設1秒，0為不淡出；短音樂不循環時在音樂結尾淡出。</p>
+      </details>
       <div id="comparisonForm" hidden>
         <div class="section-title">對比片段設定</div>
         <div id="comparisonClock" class="hint"></div>
@@ -115,5 +124,5 @@
     <p class="hint">紅線為播放指針。PNG 使用全片時間；文字隨照片順序移動。照片縮短會截短附屬標籤及超過影片結尾的 PNG。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
 </body></html>

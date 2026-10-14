@@ -13,6 +13,7 @@ const StudioTimeline=require('../frontend/timeline-model.js');
 const StudioOverlay=require('../frontend/overlay-model.js');
 const StudioComparison=require('../frontend/comparison-model.js');
 const StudioSafeArea=require('../frontend/safe-area.js');
+const StudioMusic=require('../frontend/music.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
@@ -31,7 +32,7 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,crypto:webcrypto,console,
+    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
@@ -48,6 +49,18 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,get draws(){return draws;}};
 }
+test('BGM音量與淡出連續修改不送Python，rerun／重建保留，輸出批次使用最新音樂設定',async()=>{
+  const env=environment(),m={...StudioMusic.newMusic(),source:'audio'},project={photos:env.rows(),music:m,music_asset:{id:'audio',name:'tone.wav',duration:2,src:'data:audio/wav;base64,mock'}};
+  await env.receive({project});const get=id=>env.elements.get(id);
+  assert.equal(get('musicFade').value,1);
+  for(let i=0;i<100;i++){get('musicVolume').value='30';get('musicVolume').oninput();get('musicFade').value='2';get('musicFade').oninput();}
+  assert.equal(env.changes().length,0);assert.equal(vm.runInContext('draft.music.volume',env.context),.3);
+  await env.receive({project,revision:2});assert.equal(vm.runInContext('draft.music.fade_out',env.context),2);
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});assert.equal(vm.runInContext('draft.music.fade_out',rebuilt.context),2);
+  await rebuilt.receive({project,revision:2,export_request:'r'});const sent=rebuilt.changes()[0].value;
+  assert.equal(sent.music.volume,.3);assert.equal(sent.music.fade_out,2);assert.equal(sent.music.source,'audio');
+});
+
 test('封面照片、反白局部字色、0.3秒時間軸與開關偏移全部本地；同步包含最新封面',async()=>{
   const env=environment(),rows=env.rows(),layout=JSON.parse(fs.readFileSync('frontend/cover-layout.json'));
   const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};

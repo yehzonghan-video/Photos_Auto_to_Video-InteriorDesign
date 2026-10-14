@@ -2,7 +2,7 @@
 
 GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-video/Photos_Auto_to_Video-InteriorDesign)
 
-可操作的 Streamlit 網頁：共用密碼入口、照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層及 FFmpeg H.264 輸出。登入後，沒有 Gemini 金鑰仍能手動製片。時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
+可操作的 Streamlit 網頁：共用密碼入口、照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層、BGM及 FFmpeg H.264 輸出。登入後，沒有 Gemini 金鑰仍能手動製片。時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，音樂參閱 [BGM操作](docs/BGM.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
 
 目前已完成第四階段「裝修前後對比」，並新增0.3秒品牌封面與細黑文字描邊。先選擇裝修介紹或前後對比模板：**上傳照片 → 設定封面 → 配對（對比模板）／選用 AI 標籤 → 加入 PNG → 編輯畫面與時間軸 → 預覽 → 輸出 MP4**。前後配對見 [第四階段說明](docs/COMPARISON.md)，封面操作與測試見 [片頭封面說明](docs/COVER.md)。
 
@@ -23,8 +23,9 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 | PNG 圖層 | 自動讀取預設素材、透明 PNG 上傳、跨照片、畫布拖曳／縮放／旋轉、層級與進出場動畫 |
 | 裝修前後對比 | 雙上傳區、自動／手動配對、重用照片、切換／分割／真遮罩揭露、兩側獨立裁切、共用時間軸與輸出 |
 | 影片輸出 | FFmpeg H.264 MP4、9:16、1080×1920／30 FPS，另有 720p、360p 選項 |
+| BGM | 自行上傳MP3／WAV／M4A／OGG／FLAC、音量、循環、預設1秒可調淡出、預覽與MP4音軌 |
 
-目前提供「裝修項目介紹」及「裝修前後對比」兩套模板，可用 PNG 放入自己的 LOGO。案例特色模板、背景音樂與專用品牌結尾尚未實作。已加入共用密碼入口；沒有資料庫、個別帳號或永久專案儲存。
+目前提供「裝修項目介紹」及「裝修前後對比」兩套模板，可用 PNG 放入自己的 LOGO，兩套共用BGM。案例特色模板與專用品牌結尾尚未實作。已加入共用密碼入口；沒有資料庫、個別帳號或永久專案儲存。
 
 完整測試紀錄：[片頭封面](docs/COVER.md)、[第四階段對比](docs/COMPARISON.md)、[第三階段時間軸／PNG](docs/TIMELINE_PNG.md)、[AI 與第二階段測試](docs/AI.md)、[編輯器同步測試](docs/EDITOR_SYNC.md)、[第一階段歷史驗證](docs/VALIDATION.md)。
 
@@ -92,6 +93,15 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"
 查證當日 Google 官方價格頁列有上述模型的免費 Standard 層。請使用未啟用帳務的免費專案金鑰；模型有免費層不代表已啟用帳務的專案一定免費，程式也無法由金鑰查證帳務狀態。實際可用額度請查看 AI Studio。[官方價格](https://ai.google.dev/gemini-api/docs/pricing) · [額度說明](https://ai.google.dev/gemini-api/docs/rate-limits)
 
 AI 分析會把照片副本傳送至 Google。免費方案可能使用輸入及輸出改善產品，並由人工審閱；請勿傳送敏感、機密或個人資訊。介面會在分析前顯示提醒並要求勾選同意。[Google 資料使用政策](https://ai.google.dev/gemini-api/terms)
+
+## BGM操作
+
+1. 加入照片後展開「背景音樂 BGM（預設1秒淡出）」，選音樂檔，按「加入／替換BGM」。請使用有權使用的音樂，單檔最多20 MB，超長音樂只保留前120秒。
+2. 在下方編輯器「BGM」調音量、啟用／關閉、是否循環，以及結尾淡出。預設音量50%、循環開啟、淡出1秒；淡出可設0～10秒，0為不淡出。只有BGM採用這個預設，文字與PNG動畫不變。
+3. 音樂從影片0秒開始，包含0.3秒封面。短音樂循環至影片結尾；關閉循環則在音樂結尾淡出，影片繼續。設定先留在本地草稿，套用／輸出前才整批同步。
+4. 預覽可播放BGM。FFmpeg輸出H.264＋AAC MP4；瀏覽器錄製需同時支援H.264與AAC，無法使用時請用FFmpeg。移除音樂使用上方「移除BGM」，不刪照片與標籤。
+
+資料、限制及驗證詳見 [BGM說明](docs/BGM.md)。
 
 ## 片頭封面操作
 
@@ -204,6 +214,8 @@ node --test tests/*.test.cjs
 
 Gemini錯誤診斷更新：71項Python回歸通過，新增SDK模擬HTTP狀態／逾時、Retry-After、有限退避、每日額度停止，以及第一張成功／後三張失敗後只重新分析失敗照片的AppTest。此次未使用真實API金鑰，Cloud連續失敗的實際原因需部署後依 [診斷步驟](docs/AI_DIAGNOSTICS.md)確認。
 
+BGM更新：79項Python、44項Node通過；實際Full HD H.264＋AAC MP4與解碼音量驗證，測試預設1秒淡出、循環及短音樂不縮短影片。桌面瀏覽器另驗證實際WAV上傳、預覽、錄製及2.312秒影片頁內播放；測試工具無法下載內嵌Blob，該錄製檔音軌與淡出仍待實體瀏覽器下載確認。詳見 [BGM測試紀錄](docs/BGM.md)。
+
 ## Streamlit Community Cloud
 
 1. 將原始碼推送到自己的 GitHub repository，**不要提交 `.venv`、`.tmp`、`.tools`、`.streamlit/secrets.toml` 或使用者素材**。
@@ -233,6 +245,7 @@ studio/photo_processing.py 原檔優先、容量自動最佳化、獨立預覽�
 studio/overlays.py        PNG 素材庫、Alpha／資料驗證、縮放旋轉與合成
 studio/comparison.py      前後複合片段、配對驗證、逐影格遮罩／切換／分割
 studio/cover.py           封面設定、Unicode局部字色、完整照片與共用排版
+studio/music.py           BGM暫存解碼、音樂設定、音量與淡出濾鏡
 studio/rendering.py       等比例裁切、共用 PNG 標籤、逐影格合成
 studio/animation.py       可重用動畫時間公式
 studio/export.py          FFmpeg 能力檢查、負載控制、H.264 輸出
@@ -247,6 +260,7 @@ frontend/ai-import.js     依最新構圖換算 AI 座標並批次附加草稿
 frontend/label-raster.js  未套用標籤的即時本機繪製
 frontend/cover-editor.js  封面本地編輯、反白改色與預覽
 frontend/cover-layout.json 封面時間與標題／照片安全區
+frontend/music.js          Web Audio預覽／錄製、BGM共用音量與淡出時間
 frontend/animation.js     前端動畫公式
 frontend/timeline-model.js 唯一時間投影、素材移動與裁切
 frontend/timeline-ui.js    多軌 Canvas、播放指針與拖曳
@@ -276,6 +290,6 @@ docs/COMPARISON.md        第四階段資料結構、操作、檔案清單與人
 - 第二階段已實作：Gemini Structured Output、可見內容辨識、定性信心與待確認、直接加入標籤、模型選擇、逐張排隊、補查、工作階段快取及配額限制。仍需用真實室內照片人工評估辨識準確率，以及驗證 Cloud 完整操作流程。
 - 第三階段已實作：多軌時間軸、獨立透明 PNG、直接操作與進出場動畫、共用輸出。仍需實體觸控、其他瀏覽器、Cloud 負載與真實使用者操作評估。
 - 第四階段已實作：前後照片分類、配對、三種對比模式、獨立裁切、共用時間軸及MP4；Gemini核心保留。
-- 後續：復原／重做、素材管理及專案匯出；再依需求加入其他模板、背景音樂與品牌結尾。
+- 後續：復原／重做、素材管理及專案匯出；再依需求加入其他模板與品牌結尾。
 
 參考影片尚未提供；模板 A 的基礎版以 9:16 照片、圓角標籤、定位點與進場動畫為範圍。沒有下載不明授權音樂、LOGO 或圖片。字型可透過 `STUDIO_FONT_PATH` 指定自己的合法字型檔；Cloud 使用系統 Noto CJK。

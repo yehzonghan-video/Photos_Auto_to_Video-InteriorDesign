@@ -3,6 +3,8 @@ const $ = id => document.getElementById(id);
 const W = 1080, H = 1920, ctx = $('canvas').getContext('2d');
 let photos = [], selectedPhoto = null, selectedLabel = null, imageCache = new Map(), tileCache = new Map();
 let assetMeta=new Map(),assetCache=new Map();
+let musicAsset=null,musicPreparing=false,playGeneration=0;
+const musicPlayer=new StudioMusic.MusicPlayer();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
 let showSafeArea=true,guideKind=null;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
@@ -27,6 +29,7 @@ function resize() { post('streamlit:setFrameHeight', {height:Math.ceil(document.
 new ResizeObserver(resize).observe(document.querySelector('.studio'));
 function metadata() { return photos.map(({image, tiles, ...row}) => row); }
 function validProject() {
+  const musicError=StudioMusic.validate(draft.music,musicAsset);if(musicError){status(musicError,true);return false;}
   const coverError=StudioCover.validate(draft.cover,photos);if(coverError){status(coverError,true);return false;}
   if (total() > 120) { status('影片總長最多 120 秒，請縮短照片秒數。', true); return false; }
   const comparisonError=StudioComparison.validate(draft.comparisons,photos);
@@ -54,7 +57,7 @@ function persistDraft() {
   try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea})));storageFailed=false;}
   catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
-window.addEventListener('pagehide',persistDraft);
+window.addEventListener('pagehide',()=>{persistDraft();musicPlayer.stop();});
 function syncStatus() {
   if(serverBusy)status('正在輸出已套用的影片設定…');
   else if(preparing)status('輸出前正在套用最新設定…');
@@ -128,8 +131,12 @@ window.addEventListener('message', async event => {
     const priorCoverSeconds=draft.cover?.enabled?(draft.coverSeconds??.5):0;
     const localCoverTiming=draft.session===args.session&&(draft.dirty||draft.pending);
     const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[],
-                              args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null);
+                              args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null,args.project.music||null);
     if(result.stale)return;
+    draft.music??=StudioMusic.newMusic();
+    const newMusicAsset=args.project.music_asset||null;
+    if(musicAsset?.id!==newMusicAsset?.id){stopPlayback();clearBrowserResult();$('musicPanel').open=!!newMusicAsset;}
+    musicAsset=newMusicAsset;musicPlayer.setAsset(musicAsset);
     photos=draft.rows;
     draft.template=args.project.template_id||'items';
     if(legacyCover&&draft.cover?.enabled){for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start+=coverDuration();time+=coverDuration();draft.touch(photos);}
@@ -240,7 +247,22 @@ function buildLabels() {
   $('addLabel').disabled = p.type==='cover'||p.labels.length >= 12 || recording||preparing||serverBusy;
 }
 const labelFields = ['text','font_size','color','background','opacity','radius','line','animation','start','end','enter','layer'];
+function fillMusic(){
+  const m=draft.music||StudioMusic.newMusic();$('musicName').textContent=musicAsset?`${musicAsset.name} · ${musicAsset.duration.toFixed(1)}秒`:'請先在上方加入BGM。';
+  for(const [id,field] of [['musicEnabled','enabled'],['musicLoop','loop']])$(id).checked=m[field];
+  if(document.activeElement!==$('musicVolume'))$('musicVolume').value=m.volume*100;
+  if(document.activeElement!==$('musicFade'))$('musicFade').value=m.fade_out;
+  $('musicVolumeText').textContent=`${Math.round(m.volume*100)}%`;
+  for(const id of ['musicEnabled','musicVolume','musicFade','musicLoop'])$(id).disabled=!musicAsset||recording||preparing||serverBusy;
+}
+for(const [id,field] of [['musicEnabled','enabled'],['musicLoop','loop'],['musicVolume','volume'],['musicFade','fade_out']]){
+  $(id).oninput=()=>{if(recording||preparing||serverBusy||!musicAsset)return;stopPlayback();
+    draft.music[field]=['enabled','loop'].includes(field)?$(id).checked:Number($(id).value)/(field==='volume'?100:1);
+    markEdited();fillMusic();support();draw();};
+  $(id).onchange=()=>persistDraft();
+}
 function fillForm() {
+  fillMusic();
   coverEditor.refresh();
   comparisonEditor.refresh();
   $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
@@ -367,14 +389,24 @@ $('canvas').addEventListener('keydown',e=>{
   if(l.comparison_side)StudioComparison.alignTitles(photo(),l);
   draw();info();markEdited();
 });
-function stopPlayback(){playing=false;cancelAnimationFrame(raf);$('play').textContent='▶ 預覽影片';}
+function stopPlayback(){playGeneration++;playing=false;musicPreparing=false;musicPlayer.stop();cancelAnimationFrame(raf);$('play').textContent='▶ 預覽影片';}
 function tick(now) {
   time=(now-startClock)/1000;
-  if(time>=total()) {time=Math.max(0,total()-1/30);draw();stopPlayback();if(recording&&recorder?.state==='recording')recorder.stop();return;}
+  if(time>=total()) {time=Math.max(0,total()-1/30);draw();stopPlayback();if(recording&&recorder?.state==='recording')recorder.stop();else syncStatus();return;}
   draw();if(recording)$('recordProgress').value=time/total();
   raf=requestAnimationFrame(tick);
 }
-$('play').onclick=()=>{if(recording)return;if(playing){stopPlayback();return;}editing=false;playing=true;if(time>=total()-1/30)time=0;startClock=performance.now()-time*1000;$('play').textContent='❚❚ 暫停';raf=requestAnimationFrame(tick);};
+$('play').onclick=async()=>{if(recording)return;if(playing||musicPreparing){stopPlayback();syncStatus();return;}
+  const generation=++playGeneration;
+  if(time>=total()-1/30)time=0;
+  if(StudioMusic.active(draft.music,musicAsset)){
+    musicPreparing=true;status('正在準備BGM…');
+    try{await musicPlayer.prepare();if(!musicPreparing||generation!==playGeneration)return;musicPlayer.start(draft.music,time,total());}
+    catch(error){status(error.message,true);musicPreparing=false;return;}musicPreparing=false;
+  }
+  editing=false;playing=true;startClock=performance.now()-time*1000;$('play').textContent='❚❚ 暫停';raf=requestAnimationFrame(tick);
+  status(StudioMusic.active(draft.music,musicAsset)?'正在預覽影片（含BGM）…':'正在預覽影片…');
+};
 $('edit').onclick=()=>{if(recording)return;stopPlayback();const p=locate(time).photo;if(p){selectedPhoto=p.id;selectedLabel=p.labels[0]?.id;}editing=true;buildPhotos();buildLabels();fillForm();draw();};
 $('seek').oninput=()=>seekTime(Number($('seek').value));
 $('duration').onchange=()=>{
@@ -427,7 +459,8 @@ function movePhoto(delta) {
 $('moveLeft').onclick=()=>movePhoto(-1);$('moveRight').onclick=()=>movePhoto(1);
 function supportedMime() {
   if(!window.MediaRecorder||!$('canvas').captureStream)return null;
-  return ['video/mp4;codecs=avc1.42E028','video/mp4;codecs=avc1'].find(m=>MediaRecorder.isTypeSupported(m))||null;
+  const choices=StudioMusic.active(draft.music,musicAsset)?['video/mp4;codecs=avc1.42E028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2']:['video/mp4;codecs=avc1.42E028','video/mp4;codecs=avc1'];
+  return choices.find(m=>MediaRecorder.isTypeSupported(m))||null;
 }
 function support() {
   const mime=supportedMime();$('browserExport').disabled=!mime||!!draft.pending||serverBusy||preparing;
@@ -447,6 +480,9 @@ $('browserExport').onclick=async()=>{
   if(!validProject()||draft.pending||serverBusy||preparing)return;
   const mime=supportedMime();if(!mime){status('此瀏覽器不支援 H.264 MP4，請使用 FFmpeg。',true);return;}
   preparing=true;lockEditor(true);
+  if(StudioMusic.active(draft.music,musicAsset)){
+    try{await musicPlayer.prepare();}catch(error){preparing=false;lockEditor(false);status(error.message,true);return;}
+  }
   try{await ensureSynced();}catch(error){preparing=false;lockEditor(false);status(error.message,true);return;}
   preparing=false;
   clearBrowserResult();stopPlayback();recording=true;editing=false;time=0;draw();lockEditor(true);
@@ -455,7 +491,10 @@ $('browserExport').onclick=async()=>{
   recordingFailure=null;
   try {
     stream=$('canvas').captureStream(30);
-    recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:8_000_000});
+    if(StudioMusic.active(draft.music,musicAsset)){
+      const audio=musicPlayer.start(draft.music,0,total(),true);for(const track of audio?.getAudioTracks()||[])stream.addTrack(track);
+    }
+    recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:8_000_000,audioBitsPerSecond:192_000});
     const chunks=[];
     recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
     const done=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=e=>reject(new Error(e.error?.message||'瀏覽器編碼失敗。'));});
