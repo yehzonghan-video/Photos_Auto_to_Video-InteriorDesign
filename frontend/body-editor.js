@@ -24,20 +24,24 @@
       for(const [id,field] of [['bodyEnabled','enabled'],['bodyLogo','logo_enabled']])$(id).onchange=()=>{if(hooks.locked())return;hooks.cover().body[field]=$(id).checked;hooks.change();};
       $('bodyFollow').onchange=()=>{if(hooks.locked())return;const c=hooks.cover();if(!$('bodyFollow').checked)detach(c);else c.body.follow_cover=true;hooks.change();};
       $('bodyTitle').oninput=()=>{if(hooks.locked()||hooks.cover().body.follow_cover)return;const b=hooks.cover().body;b.title=$('bodyTitle').value;b.highlights=[];this.selection=null;hooks.change();};
-      $('bodyTitle').onselect=()=>{const e=$('bodyTitle');this.selection={start:Array.from(e.value.slice(0,e.selectionStart||0)).length,end:Array.from(e.value.slice(0,e.selectionEnd||0)).length};
-        $('bodySelection').textContent=this.selection.end>this.selection.start?'已選：'+e.value.slice(e.selectionStart,e.selectionEnd):'先反白選取要改色的文字';};
-      for(const [id,field] of [['bodyColor','color'],['bodySize','font_size']])$(id).oninput=()=>{if(hooks.locked())return;const c=hooks.cover();if(field==='color'&&c.body.follow_cover)return;c.body[field]=field==='font_size'?Number($(id).value):$(id).value;hooks.change();};
-      $('bodyApplyColor').onclick=()=>{const c=hooks.cover(),r=this.selection;if(hooks.locked()||c.body.follow_cover)return;
+      const capture=()=>{this.selection=C.selection($('bodyTitle'),this.selection);
+        $('bodySelection').textContent=this.selection?'已選：'+Array.from(this.selection.value).slice(this.selection.start,this.selection.end).join(''):'請在正文標題輸入框反白要改色的文字';};
+      for(const event of ['select','pointerup','keyup','blur'])$('bodyTitle')['on'+event]=capture;
+      for(const [id,field] of [['bodyColor','color'],['bodySize','font_size']])$(id).oninput=()=>{if(hooks.locked())return;const c=hooks.cover(),target=field==='color'&&c.body.follow_cover?c:c.body;target[field]=field==='font_size'?Number($(id).value):$(id).value;hooks.change();};
+      $('bodyApplyColor').onclick=()=>{const c=hooks.cover();if(hooks.locked())return;capture();const r=this.selection,target=c.body.follow_cover?c:c.body;
         if(!r||r.end<=r.start){hooks.status('請先反白選取要改色的正文文字。',true);return;}
-        if(c.body.highlights.length>=80){hooks.status('局部字色最多80組，請先清除後重新設定。',true);return;}
-        c.body.highlights.push({...r,color:$('bodySelectedColor').value});hooks.change();};
-      $('bodyClearColors').onclick=()=>{const c=hooks.cover();if(hooks.locked()||c.body.follow_cover)return;c.body.highlights=[];hooks.change();};
+        if(target.highlights.length>=80){hooks.status('局部字色最多80組，請先清除後重新設定。',true);return;}
+        target.highlights.push({start:r.start,end:r.end,color:$('bodySelectedColor').value});hooks.change();};
+      $('bodyClearColors').onclick=()=>{const c=hooks.cover();if(hooks.locked())return;const target=c.body.follow_cover?c:c.body;target.highlights=[];hooks.change();};
     }
     refresh(){const c=this.hooks.cover();$('bodyPanel').hidden=!c?.body;if(!c?.body)return;const b=c.body,s=effective(c);
       for(const [id,k] of [['bodyEnabled','enabled'],['bodyLogo','logo_enabled'],['bodyFollow','follow_cover']])$(id).checked=b[k];
-      for(const [id,k] of [['bodyTitle','title'],['bodyColor','color'],['bodySize','font_size']])if(document.activeElement!==$(id))$(id).value=s[k];
-      for(const id of ['bodyTitle','bodyColor','bodySelectedColor','bodyApplyColor','bodyClearColors'])$(id).disabled=b.follow_cover||this.hooks.locked();
-      $('bodySelection').textContent=b.follow_cover?'連動封面文字與局部字色；取消勾選即可獨立修改。':this.selection?.end>this.selection?.start?'已選取文字，可套用字色。':'反白選取正文文字，可套用局部字色。';
+      for(const [id,k] of [['bodyTitle','title'],['bodyColor','color'],['bodySize','font_size']])if(document.activeElement!==$(id)&&String($(id).value)!==String(s[k]))$(id).value=s[k];
+      $('bodyTitle').readOnly=b.follow_cover; // 唯讀可反白，disabled則無法選字。
+      for(const id of ['bodyTitle','bodyColor','bodySelectedColor','bodyApplyColor','bodyClearColors'])$(id).disabled=this.hooks.locked();
+      this.selection=C.selection($('bodyTitle'),this.selection);
+      const selected=this.selection?'已選：'+Array.from(this.selection.value).slice(this.selection.start,this.selection.end).join('')+'。':'';
+      $('bodySelection').textContent=selected+(b.follow_cover?'可在正文輸入框反白換色，顏色會同步封面；修改文字請到封面，或取消連動。':'在正文輸入框反白要改色的文字，再選色並套用。');
       $('bodyColorPreview').replaceChildren();const palette=C.colors(s);Array.from(s.title).forEach((char,i)=>{const span=document.createElement('span');span.textContent=char;span.style.color=palette[i];$('bodyColorPreview').append(span);});
     }
     draw(ctx){const c=this.hooks.cover(),b=c?.body;if(!b)return;

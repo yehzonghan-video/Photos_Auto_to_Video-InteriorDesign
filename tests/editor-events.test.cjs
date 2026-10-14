@@ -83,6 +83,34 @@ test('正文跟隨封面文字／字色、100次独立修改均本地，rerun／
   assert.equal(sent.cover.body.title,'正文獨立88萬');assert.equal(sent.cover.body.highlights[0].color,'#ffff00');assert.equal(sent.cover.body.font_size,100);
 });
 
+test('連動正文可反白换色，色盤失焦不丟選取，封面同步且不送Python',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id);
+  const cover={enabled:true,title:'翻新88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
+  await env.receive({project});assert.equal(get('bodyTitle').disabled,false);assert.equal(get('bodyTitle').readOnly,true);
+  assert.equal(get('bodyApplyColor').disabled,false);
+  get('bodyTitle').selectionStart=2;get('bodyTitle').selectionEnd=4;get('bodyTitle').onpointerup();
+  get('bodyTitle').selectionStart=get('bodyTitle').selectionEnd=0;get('bodyTitle').onblur();get('bodyTitle').onselect();
+  get('bodySelectedColor').value='#ff0000';get('bodyApplyColor').onclick();
+  assert.equal(get('bodyColorPreview').children[2].style.color,'#ff0000');assert.equal(get('coverColorPreview').children[2].style.color,'#ff0000');
+  assert.equal(env.changes().length,0);
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.equal(rebuilt.elements.get('bodyColorPreview').children[2].style.color,'#ff0000');
+  await rebuilt.receive({project,revision:2,export_request:'color-export'});const sent=rebuilt.changes()[0].value;
+  assert.deepEqual(sent.cover.highlights,[{start:2,end:4,color:'#ff0000'}]);assert.equal(sent.cover.body.follow_cover,true);
+});
+
+test('封面選字在色盤失焦後仍能套用，未重新選字的改標題不能誤用舊範圍',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id);
+  const cover={enabled:true,title:'翻新88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
+  await env.receive({project});get('coverTitle').selectionStart=2;get('coverTitle').selectionEnd=4;get('coverTitle').onkeyup();
+  get('coverTitle').selectionStart=get('coverTitle').selectionEnd=0;get('coverTitle').onblur();get('coverTitle').onselect();
+  get('coverSelectedColor').value='#00ff00';get('coverApplyColor').onclick();assert.equal(get('coverColorPreview').children[2].style.color,'#00ff00');
+  get('coverTitle').value='改完文字';get('coverTitle').oninput();get('coverApplyColor').onclick();
+  assert.equal(vm.runInContext('draft.cover.highlights.length',env.context),0);assert.equal(env.changes().length,0);
+});
+
 test('封面照片、反白局部字色、0.3秒時間軸與開關偏移全部本地；同步包含最新封面',async()=>{
   const env=environment(),rows=env.rows(),layout=JSON.parse(fs.readFileSync('frontend/cover-layout.json'));
   const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};

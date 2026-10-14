@@ -2,6 +2,12 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const C=require('../frontend/cover-editor.js'),T=require('../frontend/timeline-model.js');
 const {DraftState}=require('../frontend/draft-state.js');
 const cover=()=>({enabled:true,title:'老屋88萬',photo_id:'p',color:'#ffffff',font_size:120,highlights:[]});
+test('反白範圍保留至色盤失焦，使用Unicode索引，改字後舊選取失效',()=>{
+  const input={value:'翻新🏠88萬',selectionStart:4,selectionEnd:6};
+  const selected=C.selection(input,null);assert.equal(selected.start,3);assert.equal(selected.end,5);
+  input.selectionStart=input.selectionEnd=0;assert.deepEqual(C.selection(input,selected),selected);
+  input.value='新標題';assert.equal(C.selection(input,selected),null);
+});
 test('封面局部顏色以Unicode字元索引，後套用範圍優先且無效索引被拒絕',()=>{
   const c=cover();c.highlights=[{start:2,end:4,color:'#ff0000'},{start:3,end:5,color:'#ffff00'}];
   assert.deepEqual(C.colors(c),['#ffffff','#ffffff','#ff0000','#ffff00','#ffff00']);

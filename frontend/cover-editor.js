@@ -5,6 +5,12 @@
   function configure(value){if(value)layout=value;}
   function key(c){return JSON.stringify([c.title,c.color,c.font_size,c.highlights,2]);}
   function colors(c){const result=Array.from(c.title,()=>c.color);for(const r of c.highlights)for(let i=r.start;i<r.end;i++)result[i]=r.color;return result;}
+  function selection(input,previous){
+    const start=Array.from(input.value.slice(0,input.selectionStart||0)).length,end=Array.from(input.value.slice(0,input.selectionEnd||0)).length;
+    // 色盤取得焦點後，瀏覽器可能回報收合選取；保留同一段文字的有效範圍。
+    if(end>start)return {start,end,value:input.value};
+    return previous?.value===input.value?previous:null;
+  }
   function ensureSource(c,photos){if(!c||photos.some(p=>p.id===c.photo_id))return false;
     c.photo_id=(photos.find(p=>p.role==='after')||photos[0])?.id||'';return true;}
   function validate(c,photos){if(!c)return null;
@@ -31,20 +37,21 @@
         const delta=duration(c)-prior;for(const slot of hooks.slots())for(const o of slot)o.start=Math.max(0,o.start+delta);
         hooks.change();};
       $('coverTitle').oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.title=$('coverTitle').value;c.highlights=[];this.selection=null;hooks.change();};
-      $('coverTitle').onselect=()=>{const input=$('coverTitle');this.selection={start:Array.from(input.value.slice(0,input.selectionStart||0)).length,end:Array.from(input.value.slice(0,input.selectionEnd||0)).length};
-        $('coverSelection').textContent=input.value.slice(input.selectionStart||0,input.selectionEnd||0)?'已選：'+input.value.slice(input.selectionStart,input.selectionEnd):'先在標題輸入框反白要改色的文字';};
+      const capture=()=>{this.selection=selection($('coverTitle'),this.selection);
+        $('coverSelection').textContent=this.selection?'已選：'+Array.from(this.selection.value).slice(this.selection.start,this.selection.end).join(''):'先在標題輸入框反白要改色的文字';};
+      for(const event of ['select','pointerup','keyup','blur'])$('coverTitle')['on'+event]=capture;
       for(const [id,field] of [['coverPhoto','photo_id'],['coverColor','color'],['coverSize','font_size']])$(id).oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c[field]=field==='font_size'?Number($(id).value):$(id).value;hooks.change();};
-      $('coverApplyColor').onclick=()=>{const c=hooks.cover(),r=this.selection;if(!c||hooks.locked())return;
+      $('coverApplyColor').onclick=()=>{const c=hooks.cover();if(!c||hooks.locked())return;capture();const r=this.selection;
         if(!r||r.end<=r.start){hooks.status('請先反白選取要改色的標題文字。',true);return;}
         if(c.highlights.length>=80){hooks.status('局部字色最多80組，請先清除後重新設定。',true);return;}
-        c.highlights.push({...r,color:$('coverSelectedColor').value});hooks.change();};
+        c.highlights.push({start:r.start,end:r.end,color:$('coverSelectedColor').value});hooks.change();};
       $('coverClearColors').onclick=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.highlights=[];hooks.change();};
       $('editCover').onclick=()=>{if(hooks.cover()?.enabled&&!hooks.locked())hooks.choose();};
     }
     refresh(){const c=this.hooks.cover();$('coverPanel').hidden=!c;if(!c)return;
       const viewing=this.hooks.viewing?.()||false;if(viewing!==this.scene){$('coverPanel').open=viewing;this.scene=viewing;}
       $('coverEnabled').checked=c.enabled;
-      for(const [id,field] of [['coverTitle','title'],['coverColor','color'],['coverSize','font_size']])if(document.activeElement!==$(id))$(id).value=c[field];
+      for(const [id,field] of [['coverTitle','title'],['coverColor','color'],['coverSize','font_size']])if(document.activeElement!==$(id)&&String($(id).value)!==String(c[field]))$(id).value=c[field];
       $('coverPhoto').replaceChildren();for(const p of this.hooks.photos()){const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('coverPhoto').append(option);}$('coverPhoto').value=c.photo_id;
       $('coverColorPreview').replaceChildren();const palette=colors(c);Array.from(c.title).forEach((char,i)=>{const span=document.createElement('span');span.textContent=char;span.style.color=palette[i];$('coverColorPreview').append(span);});
     }
@@ -57,6 +64,6 @@
       ctx.drawImage(tile,layout.title.x,layout.title.y,layout.title.width,layout.title.height);
     }
   }
-  const api={configure,duration,key,colors,ensureSource,validate,raster,mountGuide,CoverEditor};
+  const api={configure,duration,key,colors,selection,ensureSource,validate,raster,mountGuide,CoverEditor};
   if(typeof module!=='undefined')module.exports=api;else root.StudioCover=api;
 })(typeof window!=='undefined'?window:this);
