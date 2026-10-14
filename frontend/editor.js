@@ -31,6 +31,7 @@ function metadata() { return photos.map(({image, tiles, ...row}) => row); }
 function validProject() {
   const musicError=StudioMusic.validate(draft.music,musicAsset);if(musicError){status(musicError,true);return false;}
   const coverError=StudioCover.validate(draft.cover,photos);if(coverError){status(coverError,true);return false;}
+  const bodyError=StudioBody.validate(draft.cover);if(bodyError){status(bodyError,true);return false;}
   if (total() > 120) { status('影片總長最多 120 秒，請縮短照片秒數。', true); return false; }
   const comparisonError=StudioComparison.validate(draft.comparisons,photos);
   if(comparisonError){status(comparisonError,true);return false;}
@@ -113,6 +114,7 @@ window.addEventListener('message', async event => {
   try {
     const rows = args.project.photos;
     StudioCover.configure(args.project.cover_assets?.layout);
+    StudioBody.configure(args.project.body_assets?.layout);
     StudioSafeArea.configure(args.project.safe_area);StudioSafeArea.mount($('safeAreaGuide'));
     guideKind=null;
     if(receivedSession!==args.session) {
@@ -133,6 +135,7 @@ window.addEventListener('message', async event => {
     const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[],
                               args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null,args.project.music||null);
     if(result.stale)return;
+    if(draft.cover&&!draft.cover.body)draft.cover.body=StudioBody.newBody();
     draft.music??=StudioMusic.newMusic();
     const newMusicAsset=args.project.music_asset||null;
     if(musicAsset?.id!==newMusicAsset?.id){stopPlayback();clearBrowserResult();$('musicPanel').open=!!newMusicAsset;}
@@ -167,10 +170,14 @@ window.addEventListener('message', async event => {
     const coverAssets=args.project.cover_assets||{};
     const coverTemplate=coverAssets.template?(coverEditor.template?.src===coverAssets.template?coverEditor.template:await loadImage(coverAssets.template)):null;
     const coverTitle=coverAssets.title?(coverEditor.calibrated?.image.src===coverAssets.title?coverEditor.calibrated.image:await loadImage(coverAssets.title)):null;
+    const bodyAssets=args.project.body_assets||{};
+    const bodyTemplate=bodyAssets.template?(bodyEditor.template?.src===bodyAssets.template?bodyEditor.template:await loadImage(bodyAssets.template)):null;
+    const bodyTitle=bodyAssets.title?(bodyEditor.calibrated?.image.src===bodyAssets.title?bodyEditor.calibrated.image:await loadImage(bodyAssets.title)):null;
     await Promise.all(assets.map(async asset=>pngImages.set(asset.id,assetCache.get(asset.id)||await loadImage(asset.image))));
     if (generation !== renderGeneration) return;
     imageCache = images; tileCache = tiles;
     coverEditor.template=coverTemplate;coverEditor.calibrated=coverTitle?{image:coverTitle,key:StudioCover.key(args.project.cover)}:null;
+    bodyEditor.template=bodyTemplate;bodyEditor.calibrated=bodyTitle?{image:bodyTitle,key:StudioBody.key(args.project.cover)}:null;
     assetMeta=new Map(assets.map(asset=>[asset.id,asset]));assetCache=pngImages;
     if(lastRevision!==null && args.revision!==lastRevision) {
       clearBrowserResult();
@@ -264,6 +271,7 @@ for(const [id,field] of [['musicEnabled','enabled'],['musicLoop','loop'],['music
 function fillForm() {
   fillMusic();
   coverEditor.refresh();
+  bodyEditor.refresh();
   comparisonEditor.refresh();
   $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
   $('edit').textContent=isCompare()?'編輯對比片段':'編輯目前照片';
@@ -307,7 +315,7 @@ function visibleEditLabel(p,l){return !isCompare()||StudioComparison.visibleTitl
 function updateSafeArea(){
   const current=editing?photo():locate(time).photo;
   const kind=current?.type==='cover'?'cover':'body';
-  if(kind!==guideKind){if(kind==='cover')StudioCover.mountGuide($('safeAreaGuide'));else StudioSafeArea.mount($('safeAreaGuide'));guideKind=kind;}
+  if(kind!==guideKind){if(kind==='cover')StudioCover.mountGuide($('safeAreaGuide'));else {StudioSafeArea.mount($('safeAreaGuide'));StudioBody.mountGuide($('safeAreaGuide'),draft.cover);}guideKind=kind;}
   $('safeAreaGuide').hidden=!showSafeArea||recording;
 }
 $('showSafeArea').onchange=()=>{showSafeArea=$('showSafeArea').checked;updateSafeArea();persistDraft();};
@@ -322,6 +330,7 @@ function draw() {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
     ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
   }
+  if(p.type!=='cover')bodyEditor.draw(ctx);
   const materials=p.labels.map((l,index)=>({layer:l.layer??10,index,label:l})).concat(projectOverlays().map((o,index)=>({layer:o.layer,index:p.labels.length+index,overlay:o})));
   for(const item of materials.sort((a,b)=>a.layer-b.layer||a.index-b.index)) {
     if(item.overlay){pngEditor.draw(ctx,item.overlay,time,editing);continue;}
@@ -532,6 +541,10 @@ const coverEditor=new StudioCover.CoverEditor({cover:()=>draft.cover,photos:()=>
   viewing:()=>photo()?.type==='cover',
   locked:()=>recording||preparing||serverBusy,status,choose:()=>selectMaterial({type:'cover',id:'project-cover',source:'project-cover',start:0}),
   change:()=>{stopPlayback();editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});
+const bodyEditor=new StudioBody.BodyEditor({cover:()=>draft.cover,locked:()=>recording||preparing||serverBusy,status,
+  change:()=>{stopPlayback();editing=true;guideKind=null;
+    if(photo()?.type==='cover'&&bodySequence().length){selectedPhoto=bodySequence()[0].id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=coverDuration();buildPhotos();buildLabels();}
+    markEdited();fillForm();draw();}});
 const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:bodySequence,offset:coverDuration,overlays:projectOverlays,time:()=>time,
   locked:()=>recording||preparing||serverBusy,seek:seekTime,select:selectMaterial,
   selected:item=>item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,

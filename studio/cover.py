@@ -9,20 +9,21 @@ from .rendering import font_path
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'cover-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'opening-template.png'
 DURATION = LAYOUT['duration']
+BGM_API_VERSION = 2
 
 
 def new_cover():
-    return dict(enabled=True, title='室內設計案例', photo_id='', color='#ffffff', font_size=120, highlights=[])
+    from .body import new_body
+    return dict(enabled=True, title='室內設計案例', photo_id='', color='#ffffff', font_size=120, highlights=[], body=new_body())
 
 
 def validate_cover(raw, photos):
     if raw is None:
         raw = {**new_cover(), 'enabled':False}
+        raw['body'].update(enabled=False, logo_enabled=False)
     if not isinstance(raw,dict) or not isinstance(raw.get('enabled'),bool):
         raise ValueError('片頭設定格式不正確。')
-    title=raw.get('title','')
-    if not isinstance(title,str) or (raw['enabled'] and not title.strip()) or len(title)>80 or title.count('\n')>5:
-        raise ValueError('封面標題需為1～80字，最多6行。')
+    style=validate_title(raw,raw['enabled'],'封面')
     source=raw.get('photo_id','')
     if not isinstance(source,str):raise ValueError('封面照片格式不正確。')
     if source and source not in {p.id for p in photos}:
@@ -30,14 +31,24 @@ def validate_cover(raw, photos):
         source=''
     if not source:
         source=next((p.id for p in photos if p.role=='after'),photos[0].id if photos else '')
+    result=dict(enabled=raw['enabled'],photo_id=source,**style)
+    from .body import validate_body
+    result['body']=validate_body(raw.get('body'),result)
+    return result
+
+
+def validate_title(raw, required, context):
+    title=raw.get('title','')
+    if not isinstance(title,str) or (required and not title.strip()) or len(title)>80 or title.count('\n')>5:
+        raise ValueError(f'{context}標題需為1～80字，最多6行。')
     ranges=raw.get('highlights',[])
-    if not isinstance(ranges,list) or len(ranges)>80:raise ValueError('封面局部字色過多。')
+    if not isinstance(ranges,list) or len(ranges)>80:raise ValueError(f'{context}局部字色過多。')
     highlights=[]
     for r in ranges:
         if not isinstance(r,dict) or type(r.get('start')) is not int or type(r.get('end')) is not int or not 0<=r['start']<r['end']<=len(title):
             raise ValueError('請重新選取要改色的標題文字。')
         highlights.append(dict(start=r['start'],end=r['end'],color=color(r.get('color'))))
-    return dict(enabled=raw['enabled'],title=title,photo_id=source,color=color(raw.get('color','#ffffff')),
+    return dict(title=title,color=color(raw.get('color','#ffffff')),
                 font_size=int(number(raw.get('font_size',120),36,160)),highlights=highlights)
 
 
@@ -59,13 +70,14 @@ def _lines(text,font,maximum):
     return lines
 
 
-def title_tile(cover):
-    box=LAYOUT['title'];w,h=box['width'],box['height'];size=cover['font_size']
+def title_tile(cover, box=None):
+    box=LAYOUT['title'] if box is None else box
+    w,h=box['width'],box['height'];size=cover['font_size']
     while True:
         font=ImageFont.truetype(font_path(),size);lines=_lines(cover['title'],font,w-24);step=int(size*1.35)
         if len(lines)*step<=h-24:break
         size-=1
-        if size<24:raise ValueError('封面標題無法放入安全區，請減少文字或分行。')
+        if size<12:raise ValueError('標題無法放入安全區，請減少文字或分行。')
     tile=Image.new('RGBA',(w,h));draw=ImageDraw.Draw(tile);colors=title_colors(cover)
     top=(h-len(lines)*step)/2;ascent=font.getmetrics()[0]
     for row,line in enumerate(lines):

@@ -4,8 +4,8 @@ import inspect
 import unittest
 from unittest.mock import patch
 
-from studio import component, export, sync, music
-from studio.bootstrap import video_modules
+from studio import component, export, sync, music, bootstrap
+from studio.bootstrap import video_modules, BGM_API_VERSION
 from tests.app_helpers import authenticated_app
 
 
@@ -34,7 +34,7 @@ class BootstrapTests(unittest.TestCase):
                 a,b,c=video_modules()
                 self.assertIn('music_asset',inspect.signature(a.payload).parameters)
                 self.assertIn('music_asset',inspect.signature(b.export_video).parameters)
-                self.assertEqual(c.BGM_API_VERSION,1)
+                self.assertEqual(c.BGM_API_VERSION,BGM_API_VERSION)
                 self.assertIs(b.RENDER_LOCK,lock);self.assertTrue(lock.locked())
         finally:
             lock.release()
@@ -66,6 +66,15 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(app.session_state.music,prior_music)
         self.assertEqual(app.session_state.project_payload['music']['fade_out'],2)
         app.run();self.assertFalse(app.exception)
+
+    def test_streamlit_also_refreshes_cached_old_bootstrap(self):
+        app=authenticated_app()
+        next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
+        ids=[p.id for p in app.session_state.photos]
+        with patch.object(bootstrap,'BGM_API_VERSION',1),patch.object(bootstrap,'video_modules',side_effect=AssertionError('不應使用舊載入器')):
+            app.run();self.assertFalse(app.exception)
+            self.assertIn('body',app.session_state.cover)
+        self.assertEqual([p.id for p in app.session_state.photos],ids)
 
 
 if __name__=='__main__':unittest.main()

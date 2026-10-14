@@ -1,23 +1,26 @@
 """室內案例影片：前端草稿編輯與選用的 Gemini 辨識；無持久化照片。"""
 from pathlib import Path
+import importlib
 import time
 import uuid
 
 import streamlit as st
 
-from studio.bootstrap import video_modules
+from studio import bootstrap
 from studio.models import MAX_PHOTOS, load_photo
 from studio.rendering import font_path, template_config
 from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 from studio.photo_processing import fit_session
 from studio.access import require_password, logout
-from studio.cover import new_cover, DURATION
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    component_api, export_api, sync_api = video_modules()
+    if bootstrap.BGM_API_VERSION != 2:
+        importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
+    component_api, export_api, sync_api = bootstrap.video_modules()
+    from studio.cover import new_cover, DURATION
     from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
 except (RuntimeError, ImportError, OSError) as exc:
     st.error(str(exc))
@@ -59,6 +62,10 @@ if st.session_state.get('cover_version')!=2:
     st.session_state.editor_assets={};st.session_state.output=None
 if st.session_state.get('music_version')!=1:
     st.session_state.music_version=1;st.session_state.project_payload=None
+if st.session_state.get('body_title_version')!=1:
+    from studio.body import new_body
+    st.session_state.cover.setdefault('body',new_body())
+    st.session_state.body_title_version=1;st.session_state.project_payload=None
 if "overlay_assets" not in st.session_state:
     st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
 if st.session_state.get("photo_preview_version") != 1:

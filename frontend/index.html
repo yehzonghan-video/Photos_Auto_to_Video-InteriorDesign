@@ -42,6 +42,19 @@
         <label class="field">封面字級<input id="coverSize" type="range" min="36" max="160" step="1"></label>
         <p class="hint">最多80字／6行；過長會自動縮字。修改標題會重設局部色彩。標題與照片各有安全框；提示框不輸出。</p>
       </details>
+      <details id="bodyPanel" open>
+        <summary>影片正文 · 標題與LOGO</summary>
+        <label class="check"><input id="bodyEnabled" type="checkbox">顯示正文標題</label>
+        <label class="check"><input id="bodyLogo" type="checkbox">顯示正文LOGO</label>
+        <label class="check"><input id="bodyFollow" type="checkbox">連動封面文字與顏色（預設）</label>
+        <label class="field">正文標題<textarea id="bodyTitle" rows="3" maxlength="160"></textarea></label>
+        <div class="row"><label class="field">整段字色<input id="bodyColor" type="color"></label><label class="field">選取字色<input id="bodySelectedColor" type="color" value="#ffd34e"></label></div>
+        <p id="bodySelection" class="hint"></p>
+        <div class="row"><button id="bodyApplyColor">套用選取字色</button><button id="bodyClearColors">清除局部字色</button></div>
+        <div id="bodyColorPreview" class="cover-color-preview"></div>
+        <label class="field">正文字級<input id="bodySize" type="range" min="36" max="160" step="1"></label>
+        <p class="hint">位置依提供的模板固定於上方。標題自動分行／縮字放入安全框，只有文字與細黑描邊。正文標題與LOGO不套在片頭封面；PNG及標籤仍可放在它們上方。</p>
+      </details>
       <details id="musicPanel">
         <summary>BGM · 預設1秒淡出</summary>
         <p id="musicName" class="hint">請先在上方加入BGM。</p>
@@ -124,5 +137,5 @@
     <p class="hint">紅線為播放指針。PNG 使用全片時間；文字隨照片順序移動。照片縮短會截短附屬標籤及超過影片結尾的 PNG。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
 </body></html>

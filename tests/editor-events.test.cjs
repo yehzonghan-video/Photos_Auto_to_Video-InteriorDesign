@@ -23,6 +23,7 @@ function environment(storage=new Map()) {
     return {tagName:tag,children:[],value:'',checked:true,disabled:false,hidden:false,width:1080,height:1920,
       classList:{toggle(){},add(){},remove(){}},dataset:{},style:{},
       getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:1080,height:1920}),
+      querySelector:()=>null,
       replaceChildren(){this.children=[];},append(...children){this.children.push(...children);},
       addEventListener(name,fn){handlers[name]=fn;},removeAttribute(){},setPointerCapture(){},
       dispatch(name,data={}){handlers[name]?.({preventDefault(){},pointerId:1,...data});}};
@@ -41,6 +42,9 @@ function environment(storage=new Map()) {
   vm.runInContext(fs.readFileSync('frontend/comparison-editor.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/cover-editor.js','utf8'),context);
   context.StudioCover=window.StudioCover;
+  vm.runInContext(fs.readFileSync('frontend/body-editor.js','utf8'),context);
+  context.StudioBody=window.StudioBody;
+  context.StudioBody.configure(JSON.parse(fs.readFileSync('frontend/body-layout.json','utf8')));
   context.StudioTimelineUI=window.StudioTimelineUI;context.StudioPNG=window.StudioPNG;context.StudioComparisonUI=window.StudioComparisonUI;
   vm.runInContext(fs.readFileSync('frontend/editor.js','utf8'),context);
   const rows=()=>[{id:'p1',content_hash:'hash',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
@@ -59,6 +63,24 @@ test('BGM音量與淡出連續修改不送Python，rerun／重建保留，輸出
   const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});assert.equal(vm.runInContext('draft.music.fade_out',rebuilt.context),2);
   await rebuilt.receive({project,revision:2,export_request:'r'});const sent=rebuilt.changes()[0].value;
   assert.equal(sent.music.volume,.3);assert.equal(sent.music.fade_out,2);assert.equal(sent.music.source,'audio');
+});
+
+test('正文跟隨封面文字／字色、100次独立修改均本地，rerun／重建保留並批次輸出',async()=>{
+  const env=environment(),get=id=>env.elements.get(id);
+  const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
+  await env.receive({project});assert.equal(get('bodyFollow').checked,true);
+  get('coverTitle').value='翻新88萬';get('coverTitle').oninput();get('coverTitle').selectionStart=2;get('coverTitle').selectionEnd=4;get('coverTitle').onselect();
+  env.context.document.getElementById('coverSelectedColor').value='#ff0000';get('coverApplyColor').onclick();
+  assert.equal(get('bodyTitle').value,'翻新88萬');assert.equal(get('bodyColorPreview').children[2].style.color,'#ff0000');
+  get('bodyFollow').checked=false;get('bodyFollow').onchange();assert.equal(get('bodyTitle').disabled,false);
+  for(let i=0;i<100;i++){get('bodyTitle').value='正文獨立88萬';get('bodyTitle').oninput();get('bodySize').value='100';get('bodySize').oninput();}
+  get('bodyTitle').selectionStart=4;get('bodyTitle').selectionEnd=6;get('bodyTitle').onselect();env.context.document.getElementById('bodySelectedColor').value='#ffff00';get('bodyApplyColor').onclick();
+  get('coverTitle').value='封面再修改';get('coverTitle').oninput();assert.equal(get('bodyTitle').value,'正文獨立88萬');assert.equal(env.changes().length,0);
+  await env.receive({project,revision:2});const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.equal(rebuilt.elements.get('bodyTitle').value,'正文獨立88萬');assert.equal(rebuilt.elements.get('bodyFollow').checked,false);
+  await rebuilt.receive({project,revision:2,export_request:'body-export'});const sent=rebuilt.changes()[0].value;
+  assert.equal(sent.cover.body.title,'正文獨立88萬');assert.equal(sent.cover.body.highlights[0].color,'#ffff00');assert.equal(sent.cover.body.font_size,100);
 });
 
 test('封面照片、反白局部字色、0.3秒時間軸與開關偏移全部本地；同步包含最新封面',async()=>{

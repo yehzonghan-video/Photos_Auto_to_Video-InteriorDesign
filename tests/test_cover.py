@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from PIL import Image, ImageChops, ImageStat
 from studio.cover import new_cover,validate_cover,title_colors,title_tile,cover_frame,LAYOUT
+from studio.body import body_layer
 from studio.models import load_photo,new_label
 from studio.export import export_video,ffmpeg_path
 from studio.rendering import label_tile,crop_photo,render_frame
@@ -95,7 +96,8 @@ class CoverTests(unittest.TestCase):
             select='+'.join(f'eq(n\\,{n})' for n in (0,8,9,24))
             subprocess.run([ffmpeg_path(),'-y','-i',str(video),'-vf',f'select={select}','-vsync','0',str(Path(folder)/'%02d.png')],capture_output=True,check=True,timeout=60)
             for i,n in enumerate((0,8,9,24),1):
-                expected=cover_frame(c,[p]).convert('RGB') if n<9 else render_frame(crop_photo(p),p.labels,[label_tile(label)],(n-9)/30)
+                base=crop_photo(p);base.alpha_composite(body_layer(c))
+                expected=cover_frame(c,[p]).convert('RGB') if n<9 else render_frame(base,p.labels,[label_tile(label)],(n-9)/30)
                 with Image.open(Path(folder)/f'{i:02d}.png') as image:
                     delta=ImageChops.difference(expected.convert('L'),image.convert('L'))
                     self.assertLess(ImageStat.Stat(delta).mean[0],4)

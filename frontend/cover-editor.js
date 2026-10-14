@@ -14,12 +14,12 @@
     if(!hex(c.color)||!Number.isInteger(c.font_size)||c.font_size<36||c.font_size>160||!Array.isArray(c.highlights)||c.highlights.length>80)return '封面樣式設定不正確。';
     for(const r of c.highlights)if(!Number.isInteger(r.start)||!Number.isInteger(r.end)||r.start<0||r.end<=r.start||r.end>Array.from(c.title).length||!hex(r.color))return '請重新選取要改色的標題文字。';
     return null;}
-  function raster(c,createCanvas){const canvas=createCanvas(),box=layout.title;canvas.width=box.width;canvas.height=box.height;
-    const ctx=canvas.getContext('2d'),chars=Array.from(c.title);let size=Number.isFinite(c.font_size)?Math.max(24,Math.min(160,c.font_size)):120,lines,step;
+  function raster(c,createCanvas,box=layout.title){const canvas=createCanvas();canvas.width=box.width;canvas.height=box.height;
+    const ctx=canvas.getContext('2d'),chars=Array.from(c.title);let size=Number.isFinite(c.font_size)?Math.max(12,Math.min(160,c.font_size)):120,lines,step;
     while(true){ctx.font=`${size}px "Microsoft JhengHei", "Noto Sans CJK TC", sans-serif`;lines=[];let line=[];
       chars.forEach((char,index)=>{if(char==='\n'){lines.push(line);line=[];return;}
         if(line.length&&ctx.measureText(line.map(v=>v.char).join('')+char).width>box.width-24){lines.push(line);line=[];}line.push({char,index});});lines.push(line);
-      step=Math.trunc(size*1.35);if(lines.length*step<=box.height-24||size<=24)break;size--;}
+      step=Math.trunc(size*1.35);if(lines.length*step<=box.height-24||size<=12)break;size--;}
     const palette=colors(c);ctx.textBaseline='alphabetic';ctx.strokeStyle='#000000';ctx.lineWidth=4;ctx.lineJoin='round';
     lines.forEach((line,row)=>{const left=(box.width-ctx.measureText(line.map(v=>v.char).join('')).width)/2;let prefix='';
       for(const {char,index} of line){const x=left+ctx.measureText(prefix).width,y=(box.height-lines.length*step)/2+row*step+size;

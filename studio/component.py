@@ -8,8 +8,9 @@ from .photo_processing import preview_data
 from .safe_area import SAFE_AREA
 from .cover import validate_cover, template_bytes, title_tile, LAYOUT
 from .music import validate_music
+from .body import LAYOUT as BODY_LAYOUT, effective_title, template_bytes as body_template_bytes
 
-BGM_API_VERSION = 1
+BGM_API_VERSION = 2
 
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 
@@ -19,6 +20,7 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
     cache = {} if cache is None else cache
     live_ids = {photo.id for photo in photos} | {"clip:"+c["id"] for c in comparisons or []}
     live_ids.add('__cover__')
+    live_ids.add('__body__')
     if music_asset:live_ids.add('__music__')
     for ident in list(cache):
         if ident not in live_ids:
@@ -65,6 +67,13 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
         if cached.get('style')!=style:
             cached.update(style=style,title=data_url(title_tile(cover)))
         cover_assets.update(title=cached['title'],template='data:image/png;base64,'+base64.b64encode(template_bytes()).decode('ascii'))
+    body_assets={'layout':BODY_LAYOUT}
+    if photos:
+        cached=cache.setdefault('__body__',{})
+        style=effective_title(cover)
+        if cached.get('style')!=style:
+            cached.update(style=style,title=data_url(title_tile(style,BODY_LAYOUT['title'])))
+        body_assets.update(title=cached['title'],template='data:image/png;base64,'+base64.b64encode(body_template_bytes()).decode('ascii'))
     music=validate_music(music,music_asset)
     music_data=None
     if music_asset:
@@ -75,6 +84,6 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
         music_data=cached['data']
     return dict(photos=rows, template=template_config(template), template_id=template, schema_version=4, safe_area=SAFE_AREA,
                 music=music,music_asset=music_data,
-                cover=cover,cover_assets=cover_assets,
+                cover=cover,cover_assets=cover_assets,body_assets=body_assets,
                 assets=[asset.metadata() for asset in (assets or {}).values()], overlays=overlays or [],
                 comparisons=clips, comparison_overlays=comparison_overlays or [])
