@@ -58,6 +58,15 @@ test('封面照片、反白局部字色、半秒時間軸與開關偏移全部�
   get('coverTitle').value='翻新88萬';get('coverTitle').oninput();
   get('coverTitle').selectionStart=2;get('coverTitle').selectionEnd=4;get('coverTitle').onselect();env.context.document.getElementById('coverSelectedColor').value='#ff0000';get('coverApplyColor').onclick();
   get('coverPhoto').value='p2';get('coverPhoto').oninput();assert.equal(env.changes().length,0);
+  get('seek').value='0';get('seek').oninput();
+  assert.equal(get('safeAreaGuide').hidden,false,'封面動畫預覽顯示安全框');
+  assert.ok(get('safeAreaGuide').innerHTML.includes('x="246"'));
+  get('play').onclick();assert.equal(get('safeAreaGuide').hidden,false,'播放仍顯示安全框');
+  get('seek').value='1';get('seek').oninput();
+  assert.equal(get('safeAreaGuide').hidden,false,'正文預覽仍顯示安全框');
+  assert.ok(!get('safeAreaGuide').innerHTML.includes('x="246"'),'依播放畫面切換正文安全區');
+  vm.runInContext('recording=true;draw()',env.context);assert.equal(get('safeAreaGuide').hidden,true,'錄製隱藏提示');
+  vm.runInContext('recording=false;draw()',env.context);assert.equal(get('safeAreaGuide').hidden,false);
   assert.equal(vm.runInContext('draft.cover.highlights[0].end',env.context),4);
   get('coverEnabled').checked=false;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),.5);
   get('coverEnabled').checked=true;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),1);
@@ -67,7 +76,7 @@ test('封面照片、反白局部字色、半秒時間軸與開關偏移全部�
   await env.receive({project:{...project,cover:event.cover,overlays:event.overlays},revision:3,response:{nonce:event.nonce,ok:true}});await promise;
   assert.equal(env.changes().length,1);
 });
-test('安全框開關與預覽隱藏只處理DOM；標題可拖出內框、rerun和重建保留人工位置',async()=>{
+test('安全框開關與預覽只處理DOM；標題可拖出內框、rerun和重建保留人工位置',async()=>{
   const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
   const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));
   const project={photos:rows,comparisons:[c],template_id:'compare'},get=id=>env.elements.get(id);
@@ -85,7 +94,9 @@ test('安全框開關與預覽隱藏只處理DOM；標題可拖出內框、rerun
   const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
   assert.equal(rebuilt.elements.get('showSafeArea').checked,false);assert.equal(vm.runInContext('photo().labels[0].x',rebuilt.context),0);
   get('showSafeArea').checked=true;get('showSafeArea').onchange();get('seek').value='0';get('seek').oninput();
-  assert.equal(get('safeAreaGuide').hidden,true,'動畫預覽不顯示安全框');get('edit').onclick();assert.equal(get('safeAreaGuide').hidden,false);
+  assert.equal(get('safeAreaGuide').hidden,false,'動畫預覽顯示安全框');
+  get('showSafeArea').checked=false;get('showSafeArea').onchange();assert.equal(get('safeAreaGuide').hidden,true,'預覽可關閉提示');
+  get('showSafeArea').checked=true;get('showSafeArea').onchange();get('edit').onclick();assert.equal(get('safeAreaGuide').hidden,false);
   assert.equal(env.changes().length,0);
 });
 test('前後標題拖曳共用位置、選取自動跳至對應時間、舊草稿升級且rerun不送Python',async()=>{

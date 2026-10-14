@@ -275,9 +275,10 @@ function bounds(l) {
 }
 function visibleEditLabel(p,l){return !isCompare()||StudioComparison.visibleTitle(p,l,time-photoOffset(p.id),comparisonEditor.view);}
 function updateSafeArea(){
-  const kind=photo()?.type==='cover'?'cover':'body';
+  const current=editing?photo():locate(time).photo;
+  const kind=current?.type==='cover'?'cover':'body';
   if(kind!==guideKind){if(kind==='cover')StudioCover.mountGuide($('safeAreaGuide'));else StudioSafeArea.mount($('safeAreaGuide'));guideKind=kind;}
-  $('safeAreaGuide').hidden=!showSafeArea||!editing||recording;
+  $('safeAreaGuide').hidden=!showSafeArea||recording;
 }
 $('showSafeArea').onchange=()=>{showSafeArea=$('showSafeArea').checked;updateSafeArea();persistDraft();};
 function draw() {
