@@ -20,6 +20,13 @@ test('正文預覽時間包含起點不含終點，舊預設升級一次且保�
   const old={font_size:88};assert.equal(B.upgrade(old),true);assert.equal(old.font_size,120);assert.equal(B.upgrade(old),false);
   const manual={font_size:180};B.upgrade(manual);assert.equal(manual.font_size,180);
 });
+test('正文位置以中心比例儲存，預設上移60px，既有位置升級時保留',()=>{
+  const b=B.newBody();assert.equal(B.box(b).x,142);assert.equal(B.box(b).y,350);
+  const old={font_size:140,version:2,start:2,end:5,auto_timing:false};B.upgrade(old);
+  assert.equal(old.font_size,140);assert.equal(old.start,2);assert.equal(B.box(old).y,350);
+  const manual={...old,x:.4,y:.7,version:2};B.upgrade(manual);assert.equal(manual.x,.4);assert.equal(manual.y,.7);
+  const c=cover();c.body.x=NaN;assert.ok(B.validate(c));c.body.x=.5;c.body.y=1.1;assert.ok(B.validate(c));
+});
 test('正文連動封面文字及Unicode局部色彩，取消連動複製後可獨立編輯',()=>{
   const c=cover();assert.equal(B.validate(c),null);
   assert.equal(B.effective(c).title,c.title);assert.equal(C.colors(B.effective(c))[3],'#ff0000');

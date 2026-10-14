@@ -56,7 +56,9 @@
         <div class="row"><button id="bodyApplyColor">套用選取字色</button><button id="bodyClearColors">清除局部字色</button></div>
         <div id="bodyColorPreview" class="cover-color-preview"></div>
         <label class="field" for="bodySize">正文字級 <output id="bodySizeValue"></output><input id="bodySize" type="range" min="36" max="240" step="1"></label>
-        <p class="hint">正文標題可在下方時間軸拖曳整段／左右邊界調時間；預設120px，較長文字可分行並自動縮字。連動時反白換色會同步封面；要獨立修改請取消連動。LOGO仍在正文全程顯示。</p>
+        <div class="row"><label class="field">正文水平位置（%）<input id="bodyX" type="number" min="0" max="100" step=".1"></label><label class="field">正文垂直位置（%）<input id="bodyY" type="number" min="0" max="100" step=".1"></label></div>
+        <button id="bodyResetPosition">恢復預設位置（較高）</button>
+        <p class="hint">直接拖曳畫布上的正文文字調位置，選取後可用方向鍵微調；預設位置已上移。下方時間軸調顯示時間。位置及字級獨立於封面，連動換色仍同步封面；LOGO位置維持原配置。</p>
       </details>
       <details id="musicPanel">
         <summary>BGM · 預設1秒淡出</summary>

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from PIL import Image, ImageChops, ImageStat
 from studio.cover import new_cover, validate_cover, cover_frame, title_tile
-from studio.body import LAYOUT, body_layer, effective_title, title_span, title_visible, upgrade_body
+from studio.body import LAYOUT, body_layer, effective_title, title_span, title_visible, upgrade_body, title_box
 from studio.component import payload
 from studio.sync import consume_editor_event
 from studio.comparison import new_comparison, comparison_frame, prepare_comparison
@@ -17,6 +17,29 @@ from tests.test_cover import photo
 
 
 class BodyTests(unittest.TestCase):
+    def test_position_validation_cache_and_cover_unchanged(self):
+        p=photo();c=validate_cover(new_cover(),[p]);self.assertEqual(title_box(c['body'])['y'],350)
+        opening=cover_frame(c,[p]);cache={};first=payload([p],cache,cover=c)
+        c['body'].update(x=.4,y=.65);c=validate_cover(c,[p]);second=payload([p],cache,cover=c)
+        self.assertIs(first['body_assets']['title'],second['body_assets']['title'],'移動不重新光柵文字')
+        del cache['__body__']['bounds']
+        self.assertIsNotNone(payload([p],cache,cover=c)['body_assets']['bounds'],'升級旧工作階段的快取仍可使用')
+        self.assertIsNone(ImageChops.difference(opening.convert('RGB'),cover_frame(c,[p]).convert('RGB')).getbbox())
+        tile=body_layer(c,include_logo=False);self.assertGreater(tile.getbbox()[1],1000)
+        for change in ({'x':float('nan')},{'x':-1},{'y':1.1},{'y':'0.5'},{'x':True}):
+            with self.subTest(change=change),self.assertRaises(ValueError):validate_cover({**c,'body':{**c['body'],**change}},[p])
+
+    def test_real_full_hd_mp4_uses_moved_position(self):
+        p=photo(size=(108,192));c=validate_cover(new_cover(),[p]);c['body'].update(x=.4,y=.65)
+        data=export_video([p],cover=c)
+        with tempfile.TemporaryDirectory(prefix='body-position-') as folder:
+            video=Path(folder)/'case.mp4';target=Path(folder)/'frame.png';video.write_bytes(data)
+            subprocess.run([ffmpeg_path(),'-y','-i',str(video),'-vf','select=eq(n\\,12)','-frames:v','1',str(target)],capture_output=True,check=True,timeout=60)
+            base=crop_photo(p);base.alpha_composite(body_layer(c))
+            with Image.open(target) as actual:
+                delta=ImageChops.difference(base.convert('L'),actual.convert('L'))
+                self.assertLess(ImageStat.Stat(delta).mean[0],4)
+
     def test_timing_validation_bounds_and_default_size_upgrade(self):
         p=photo();c=new_cover();self.assertEqual(c['body']['font_size'],120)
         b=c['body'];self.assertEqual(title_span(b,.3,2.3),(.3,2.3))

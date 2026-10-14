@@ -73,6 +73,7 @@ function markEdited(persist=true) {
   draft.touch(photos);clearBrowserResult();
   comparisonEditor.prune();
   StudioCover.ensureSource(draft.cover,photos);
+  if(draft.cover?.body?.enabled)bodyEditor.position(draft.cover.body.x,draft.cover.body.y);
   StudioBody.fit(draft.cover?.body,coverDuration(),total());
   StudioTimeline.clampOverlays(draft.overlays,StudioTimeline.total(photos)+coverDuration());
   StudioTimeline.clampOverlays(draft.comparisonOverlays,StudioTimeline.total(draft.comparisons)+coverDuration());
@@ -185,7 +186,7 @@ window.addEventListener('message', async event => {
     if (generation !== renderGeneration) return;
     imageCache = images; tileCache = tiles;
     coverEditor.template=coverTemplate;coverEditor.calibrated=coverTitle?{image:coverTitle,key:StudioCover.key(args.project.cover)}:null;
-    bodyEditor.template=bodyTemplate;bodyEditor.calibrated=bodyTitle?{image:bodyTitle,key:StudioBody.key(args.project.cover)}:null;
+    bodyEditor.template=bodyTemplate;bodyEditor.calibrated=bodyTitle?{image:bodyTitle,key:StudioBody.key(args.project.cover),bounds:bodyAssets.bounds}:null;
     assetMeta=new Map(assets.map(asset=>[asset.id,asset]));assetCache=pngImages;
     if(lastRevision!==null && args.revision!==lastRevision) {
       clearBrowserResult();
@@ -339,7 +340,7 @@ function draw() {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
     ctx.drawImage(image,box.sx,box.sy,box.sw,box.sh,box.dx,box.dy,box.dw,box.dh);
   }
-  if(p.type!=='cover')bodyEditor.draw(ctx,time);
+  if(p.type!=='cover')bodyEditor.draw(ctx,time,editing&&bodySelected);
   const materials=p.labels.map((l,index)=>({layer:l.layer??10,index,label:l})).concat(projectOverlays().map((o,index)=>({layer:o.layer,index:p.labels.length+index,overlay:o})));
   for(const item of materials.sort((a,b)=>a.layer-b.layer||a.index-b.index)) {
     if(item.overlay){pngEditor.draw(ctx,item.overlay,time,editing);continue;}
@@ -372,6 +373,9 @@ $('canvas').addEventListener('pointerdown',e=>{
   const visible=p.labels.filter(l=>visibleEditLabel(p,l));
   const hitLayer=Math.max(-1,...visible.filter(l=>{const b=bounds(l);return (!l.comparison_side&&Math.hypot(xy.x-l.point_x*W,xy.y-l.point_y*H)<42)||(xy.x>=b.x&&xy.x<=b.x+b.width&&xy.y>=b.y&&xy.y<=b.y+b.height);}).map(l=>l.layer??10));
   if(pngEditor.down(xy,hitLayer)){e.preventDefault();dragging={type:'png'};$('canvas').setPointerCapture(e.pointerId);draw();return;}
+  if(hitLayer<0&&p.type!=='cover'&&bodyEditor.hit(xy,time)){
+    const placed=bodyEditor.bounds().tile;dragging={type:'body',dx:xy.x-placed.x,dy:xy.y-placed.y};
+    e.preventDefault();bodySelected=true;pngEditor.selected=null;selectedLabel=null;$('canvas').setPointerCapture(e.pointerId);fillForm();draw();return;}
   if(hitLayer<0&&comparisonEditor.dividerDown(xy)){e.preventDefault();dragging={type:'divider'};$('canvas').setPointerCapture(e.pointerId);return;}
   // 優先選取目前標籤的定位點，避免與其他文字碰撞時難以拖曳。
   const ordered=[...visible].reverse().sort((a,b)=>Number(b.id===selectedLabel)-Number(a.id===selectedLabel));
@@ -385,6 +389,9 @@ $('canvas').addEventListener('pointerdown',e=>{
 $('canvas').addEventListener('pointermove',e=>{
   if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e);
   if(dragging.type==='png'){pngEditor.move(xy);markEdited(false);queueDraw();return;}
+  if(dragging.type==='body'){const size=StudioBody.box(draft.cover.body);
+    bodyEditor.position((xy.x-dragging.dx+size.width/2)/W,(xy.y-dragging.dy+size.height/2)/H);
+    bodyEditor.refresh();markEdited(false);queueDraw();return;}
   if(dragging.type==='divider'){photo().split=clamp(xy.x/W,.1,.9);comparisonEditor.refresh();markEdited(false);queueDraw();return;}
   const l=label();if(!l)return;
   if(dragging.type==='point') {l.point_x=clamp(xy.x/W,0,1);l.point_y=clamp(xy.y/H,0,1);}
@@ -395,6 +402,10 @@ $('canvas').addEventListener('pointermove',e=>{
 function finishDrag(){if(dragging){dragging=null;pngEditor.drag=null;persistDraft();}}
 $('canvas').addEventListener('pointerup',finishDrag);$('canvas').addEventListener('pointercancel',finishDrag);
 $('canvas').addEventListener('keydown',e=>{
+  if(editing&&!recording&&!preparing&&!serverBusy&&bodySelected&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
+    e.preventDefault();const b=draft.cover.body,step=e.shiftKey?30:6;
+    bodyEditor.position(b.x+(e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0)/W,b.y+(e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0)/H);
+    markEdited();fillForm();draw();return;}
   if(editing&&!recording&&!preparing&&!serverBusy&&pngEditor.item()){
     if(e.key==='Delete'){e.preventDefault();pngEditor.remove();return;}
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const o=pngEditor.item(),step=e.shiftKey?30:6;

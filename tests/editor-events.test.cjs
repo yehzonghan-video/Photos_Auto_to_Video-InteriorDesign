@@ -87,6 +87,25 @@ test('正文時間軸拖移與兩端裁切不送Python，字級可到240，切�
   assert.equal(sent.cover.body.auto_timing,false);assert.ok(Math.abs(sent.cover.body.start-1.8)<1e-8);assert.ok(Math.abs(sent.cover.body.end-7.5)<1e-8);
   assert.equal(sent.photos[0].duration,4);assert.equal(sent.photos[1].duration,4);
 });
+test('正文畫布500次拖曳與方向鍵均本地，照片切換／重建／輸出保留位置，封面不移動',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id);
+  const cover={enabled:true,title:'可移動正文',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
+  await env.receive({project});get('photos').children[1].onclick();
+  const before=vm.runInContext('({...draft.cover.body})',env.context),r=vm.runInContext('bodyEditor.bounds()',env.context);
+  get('canvas').dispatch('pointerdown',{clientX:r.x+30,clientY:r.y+30});
+  assert.equal(vm.runInContext('dragging.type',env.context),'body');
+  for(let i=0;i<500;i++)get('canvas').dispatch('pointermove',{clientX:r.x+30+i/5,clientY:r.y+30+i/2});get('canvas').dispatch('pointerup');
+  get('canvas').dispatch('keydown',{key:'ArrowUp'});
+  const position=vm.runInContext('({x:draft.cover.body.x,y:draft.cover.body.y})',env.context);
+  assert.ok(position.x>before.x);assert.ok(position.y>before.y);assert.equal(env.changes().length,0);
+  assert.equal(vm.runInContext('draft.cover.title',env.context),'可移動正文');
+  get('photos').children[2].onclick();get('photos').children[1].onclick();await env.receive({project,revision:2});
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.equal(vm.runInContext('draft.cover.body.x',rebuilt.context),position.x);
+  await rebuilt.receive({project,revision:2,export_request:'body-position'});const sent=rebuilt.changes()[0].value;
+  assert.equal(sent.cover.body.x,position.x);assert.equal(sent.cover.body.y,position.y);assert.equal(sent.cover.body.follow_cover,true);
+});
 
 test('正文跟隨封面文字／字色、100次独立修改均本地，rerun／重建保留並批次輸出',async()=>{
   const env=environment(),get=id=>env.elements.get(id);

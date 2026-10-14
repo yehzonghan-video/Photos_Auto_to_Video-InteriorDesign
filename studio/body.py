@@ -7,23 +7,33 @@ from PIL import Image, ImageOps
 from .cover import validate_title, title_tile
 from .models import number
 
-BGM_API_VERSION = 3
+BGM_API_VERSION = 4
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'body-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'body-template.png'
 
 
 def new_body():
     return dict(enabled=True, logo_enabled=True, follow_cover=True, title='室內設計案例',
-                color='#ffffff', highlights=[], font_size=120, auto_timing=True, start=0., end=None, version=2)
+                color='#ffffff', highlights=[], font_size=120, auto_timing=True, start=0., end=None,
+                x=.5, y=(LAYOUT['title']['y']+LAYOUT['title']['height']/2)/1920, version=3)
 
 
 def upgrade_body(body):
     """舊預設字級放大一次；保留已手動選擇的其他字級／樣式。"""
-    if body.get('version') != 2:
-        if body.get('font_size') == 88:body['font_size']=120
-        for key in ('auto_timing','start','end'):body.setdefault(key,new_body()[key])
-        body['version']=2
+    if body.get('version') != 3:
+        if body.get('version',0)<2 and body.get('font_size') == 88:body['font_size']=120
+        defaults=new_body()
+        for key in ('auto_timing','start','end','x','y'):body.setdefault(key,defaults[key])
+        body['version']=3
     return body
+
+
+def title_box(body):
+    """位置以標題區中心的相對比例儲存；字型光柵與位置分開快取。"""
+    box=LAYOUT['title']
+    return dict(x=round(body.get('x',.5)*1080-box['width']/2),
+                y=round(body.get('y',new_body()['y'])*1920-box['height']/2),
+                width=box['width'],height=box['height'])
 
 
 def title_span(body, prefix, length):
@@ -62,7 +72,10 @@ def validate_body(raw, cover):
     end=raw.get('end')
     if end is not None:end=number(end,0,120)
     if not auto and (end is None or end-start < 1/30-1e-8):raise ValueError('正文標題至少需顯示一影格，請確認開始與結束時間。')
-    body.update(auto_timing=auto,start=start,end=end,version=2)
+    for key in ('x','y'):
+        if type(raw.get(key,new_body()[key])) not in (int,float):raise ValueError('正文標題位置必須為數值。')
+        body[key]=number(raw.get(key,new_body()[key]),0,1)
+    body.update(auto_timing=auto,start=start,end=end,version=3)
     return body
 
 
@@ -84,6 +97,7 @@ def body_layer(cover, *, include_title=True, include_logo=True):
         with Image.open(BytesIO(template_bytes())) as image:
             layer.alpha_composite(image.convert('RGBA'))
     if body['enabled'] and include_title:
+        box=title_box(body)
         layer.alpha_composite(title_tile(effective_title(cover), LAYOUT['title']),
-                              (LAYOUT['title']['x'], LAYOUT['title']['y']))
+                              (box['x'],box['y']))
     return layer

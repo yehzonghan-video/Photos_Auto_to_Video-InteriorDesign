@@ -5,9 +5,18 @@
   const $=id=>document.getElementById(id),clone=v=>JSON.parse(JSON.stringify(v));
   function configure(value){if(value)layout=value;}
   const MIN=1/30,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  function newBody(){return {enabled:true,logo_enabled:true,follow_cover:true,title:'室內設計案例',color:'#ffffff',highlights:[],font_size:120,auto_timing:true,start:0,end:null,version:2};}
-  function upgrade(b){if(!b||b.version===2)return false;if(b.font_size===88)b.font_size=120;
-    b.auto_timing??=true;b.start??=0;b.end??=null;b.version=2;return true;}
+  function newBody(){return {enabled:true,logo_enabled:true,follow_cover:true,title:'室內設計案例',color:'#ffffff',highlights:[],font_size:120,auto_timing:true,start:0,end:null,
+    x:.5,y:(layout.title.y+layout.title.height/2)/1920,version:3};}
+  function upgrade(b){if(!b||b.version===3)return false;if((b.version??0)<2&&b.font_size===88)b.font_size=120;
+    b.auto_timing??=true;b.start??=0;b.end??=null;b.x??=newBody().x;b.y??=newBody().y;b.version=3;return true;}
+  function box(b){const size=layout.title;return {x:Math.round((b.x??.5)*1080-size.width/2),
+    y:Math.round((b.y??newBody().y)*1920-size.height/2),width:size.width,height:size.height};}
+  function alphaBounds(image){const canvas=image.getContext?image:document.createElement('canvas');
+    if(canvas!==image){canvas.width=layout.title.width;canvas.height=layout.title.height;canvas.getContext('2d').drawImage(image,0,0);}
+    const ctx=canvas.getContext('2d');if(!ctx.getImageData)return [0,0,canvas.width,canvas.height];
+    const {data}=ctx.getImageData(0,0,canvas.width,canvas.height);let left=canvas.width,right=0,top=canvas.height,bottom=0;
+    for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++)if(data[(y*canvas.width+x)*4+3]){left=Math.min(left,x);right=Math.max(right,x+1);top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
+    return right>left?[left,top,right,bottom]:[0,0,canvas.width,canvas.height];}
   function span(b,prefix,length){if(length-prefix<MIN-1e-8)return {start:prefix,end:prefix};
     if(b.auto_timing??true)return {start:prefix,end:length};
     const start=clamp(b.start,prefix,length-MIN),end=clamp(b.end,start+MIN,length);return {start,end};}
@@ -20,6 +29,7 @@
   function detach(cover){const style=clone(effective(cover));Object.assign(cover.body,style,{follow_cover:false});}
   function validate(cover){const b=cover?.body;if(!b)return null;
     if(['enabled','logo_enabled','follow_cover'].some(k=>typeof b[k]!=='boolean'))return '正文標題與LOGO設定格式不正確。';
+    for(const field of ['x','y'])if(b[field]!=null&&(!Number.isFinite(b[field])||b[field]<0||b[field]>1))return '正文位置需為0～100%。';
     if(typeof (b.auto_timing??true)!=='boolean'||!Number.isFinite(b.start??0)||(b.start??0)<0||(b.start??0)>120||
       (b.end!=null&&(!Number.isFinite(b.end)||b.end<0||b.end>120))||b.auto_timing===false&&(b.end==null||b.end-b.start<MIN-1e-8))return '請確認正文標題開始與結束時間，至少一影格。';
     const check=(s,required)=>C.validate({...s,enabled:required,photo_id:''},[],240);
@@ -35,6 +45,9 @@
   class BodyEditor{
     constructor(hooks){this.hooks=hooks;this.template=null;this.calibrated=null;this.local=null;this.selection=null;
       for(const [id,field] of [['bodyEnabled','enabled'],['bodyLogo','logo_enabled']])$(id).onchange=()=>{if(hooks.locked())return;hooks.cover().body[field]=$(id).checked;hooks.change();};
+      for(const [id,field] of [['bodyX','x'],['bodyY','y']])$(id).oninput=()=>{if(hooks.locked())return;const b=hooks.cover().body,value=Number($(id).value)/100;if(!Number.isFinite(value))return;
+        this.position(field==='x'?value:b.x,field==='y'?value:b.y);hooks.change();};
+      $('bodyResetPosition').onclick=()=>{if(hooks.locked())return;const b=hooks.cover().body;Object.assign(b,{x:newBody().x,y:newBody().y});hooks.change();};
       $('bodyAutoTime').onchange=()=>{if(hooks.locked())return;const b=hooks.cover().body,range=span(b,hooks.prefix(),hooks.length());
         b.auto_timing=$('bodyAutoTime').checked;if(!b.auto_timing)Object.assign(b,range);hooks.change();};
       for(const [id,field] of [['bodyStart','start'],['bodyEnd','end']])$(id).oninput=()=>{if(hooks.locked())return;
@@ -66,15 +79,25 @@
       $('bodySelection').textContent=selected+(b.follow_cover?'可在正文輸入框反白換色，顏色會同步封面；修改文字請到封面，或取消連動。':'在正文輸入框反白要改色的文字，再選色並套用。');
       $('bodyColorPreview').replaceChildren();const palette=C.colors(s);Array.from(s.title).forEach((char,i)=>{const span=document.createElement('span');span.textContent=char;span.style.color=palette[i];$('bodyColorPreview').append(span);});
       $('bodySizeValue').textContent=`${b.font_size}px`;
+      for(const [id,k] of [['bodyX','x'],['bodyY','y']])if(document.activeElement!==$(id))$(id).value=Number((b[k]*100).toFixed(2));
     }
-    draw(ctx,time=0){const c=this.hooks.cover(),b=c?.body;if(!b)return;
+    tile(){const c=this.hooks.cover(),titleKey=key(c);if(this.calibrated?.key===titleKey)return this.calibrated;
+      if(this.local?.key!==titleKey){const image=C.raster(effective(c),()=>document.createElement('canvas'),layout.title,240);this.local={key:titleKey,image,bounds:alphaBounds(image)};}
+      return this.local;}
+    bounds(){const placed=box(this.hooks.cover().body),r=this.tile().bounds||[0,0,placed.width,placed.height];
+      return {x:placed.x+r[0],y:placed.y+r[1],width:r[2]-r[0],height:r[3]-r[1],tile:placed};}
+    hit(xy,time){const b=this.hooks.cover()?.body;if(!b||!visible(b,time,this.hooks.prefix(),this.hooks.length()))return false;
+      const r=this.bounds();return xy.x>=r.x&&xy.x<=r.x+r.width&&xy.y>=r.y&&xy.y<=r.y+r.height;}
+    position(x,y){const b=this.hooks.cover().body,r=this.tile().bounds||[0,0,layout.title.width,layout.title.height],size=layout.title;
+      b.x=clamp(x,Math.max(0,(size.width/2-r[0])/1080),Math.min(1,(1080+size.width/2-r[2])/1080));
+      b.y=clamp(y,Math.max(0,(size.height/2-r[1])/1920),Math.min(1,(1920+size.height/2-r[3])/1920));}
+    draw(ctx,time=0,selected=false){const c=this.hooks.cover(),b=c?.body;if(!b)return;
       if(b.logo_enabled&&this.template){const scale=Math.min(1080/this.template.naturalWidth,1920/this.template.naturalHeight),w=this.template.naturalWidth*scale;
         ctx.drawImage(this.template,(1080-w)/2,0,w,this.template.naturalHeight*scale);}
-      if(!visible(b,time,this.hooks.prefix(),this.hooks.length()))return;const titleKey=key(c);let tile=this.calibrated?.key===titleKey?this.calibrated.image:null;
-      if(!tile){if(this.local?.key!==titleKey)this.local={key:titleKey,image:C.raster(effective(c),()=>document.createElement('canvas'),layout.title,240)};tile=this.local.image;}
-      const box=layout.title;ctx.drawImage(tile,box.x,box.y,box.width,box.height);
+      if(!visible(b,time,this.hooks.prefix(),this.hooks.length()))return;const placed=box(b),tile=this.tile().image;ctx.drawImage(tile,placed.x,placed.y,placed.width,placed.height);
+      if(selected){const r=this.bounds();ctx.save();ctx.strokeStyle='#eac181';ctx.lineWidth=4;ctx.setLineDash([12,8]);ctx.strokeRect(r.x-6,r.y-6,r.width+12,r.height+12);ctx.restore();}
     }
   }
-  const api={configure,newBody,upgrade,span,fit,visible,item,effective,detach,validate,key,mountGuide,BodyEditor};
+  const api={configure,newBody,upgrade,box,span,fit,visible,item,effective,detach,validate,key,mountGuide,BodyEditor};
   if(typeof module!=='undefined')module.exports=api;else root.StudioBody=api;
 })(typeof window!=='undefined'?window:this);
