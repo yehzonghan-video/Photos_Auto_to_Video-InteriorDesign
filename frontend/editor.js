@@ -14,7 +14,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const isCompare=()=>draft.template==='compare';
 const bodySequence=()=>isCompare()?draft.comparisons:photos;
 const coverDuration=()=>photos.length?StudioCover.duration(draft.cover):0;
-const coverScene=()=>({id:'project-cover',type:'cover',name:'片頭封面',duration:.5,labels:[],image:photos.find(p=>p.id===draft.cover?.photo_id)?.image});
+const coverScene=()=>({id:'project-cover',type:'cover',name:'片頭封面',duration:coverDuration(),labels:[],image:photos.find(p=>p.id===draft.cover?.photo_id)?.image});
 const sequence=()=>coverDuration()?[coverScene(),...bodySequence()]:bodySequence();
 const projectOverlays=()=>isCompare()?draft.comparisonOverlays:draft.overlays;
 const photo = () => sequence().find(p => p.id === selectedPhoto) || sequence()[0];
@@ -50,6 +50,7 @@ function validProject() {
 }
 function persistDraft() {
   if(!draft.session)return;
+  draft.coverSeconds=StudioCover.duration(draft.cover);
   try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea})));storageFailed=false;}
   catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
@@ -124,12 +125,19 @@ window.addEventListener('message', async event => {
     }
     const templateChanged=draft.template!==(args.project.template_id||'items');
     const legacyCover=draft.session===args.session&&draft.cover===null&&(draft.dirty||draft.pending);
+    const priorCoverSeconds=draft.cover?.enabled?(draft.coverSeconds??.5):0;
+    const localCoverTiming=draft.session===args.session&&(draft.dirty||draft.pending);
     const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[],
                               args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null);
     if(result.stale)return;
     photos=draft.rows;
     draft.template=args.project.template_id||'items';
-    if(legacyCover&&draft.cover?.enabled){for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start+=.5;time+=.5;draft.touch(photos);}
+    if(legacyCover&&draft.cover?.enabled){for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start+=coverDuration();time+=coverDuration();draft.touch(photos);}
+    else if(localCoverTiming&&draft.dirty&&draft.cover?.enabled&&priorCoverSeconds!==coverDuration()){
+      const delta=coverDuration()-priorCoverSeconds;
+      for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start=Math.max(0,o.start+delta);
+      time=Math.max(0,time+delta);draft.touch(photos);
+    }
     if(StudioCover.ensureSource(draft.cover,photos))draft.touch(photos);
     comparisonEditor.prune();
     // 舊工作階段的標題只升級一次；沿用草稿同步，避免覆蓋未套用的人工內容。
@@ -197,7 +205,7 @@ function button(text, fn, className = '') {
 }
 function buildPhotos() {
   $('photos').replaceChildren();
-  if(coverDuration())$('photos').append(button('封面 · 0.5秒',()=>selectMaterial({type:'cover',source:'project-cover',id:'project-cover',start:0}),'photo'+(selectedPhoto==='project-cover'?' active':'')));
+  if(coverDuration())$('photos').append(button(`封面 · ${coverDuration()}秒`,()=>selectMaterial({type:'cover',source:'project-cover',id:'project-cover',start:0}),'photo'+(selectedPhoto==='project-cover'?' active':'')));
   const active=bodySequence();active.forEach((p, index) => {
     const item = button('', () => selectMaterial({type:'photo',id:p.id,source:p.id,start:photoOffset(p.id)}), 'photo' + (p.id === selectedPhoto ? ' active' : ''));
     item.draggable = true; item.dataset.photoId = p.id; item.title = p.name;
@@ -239,7 +247,7 @@ function fillForm() {
   $('edit').textContent=isCompare()?'編輯對比片段':'編輯目前照片';
   for(const key of ['duration','fit','zoom','crop_x','crop_y','moveLeft','moveRight','deletePhoto','addLabel'])$(key).disabled=!photo()||photo().type==='cover'||recording||preparing||serverBusy;
   const p=photo(); if(!p){$('labelForm').hidden=true;$('overlayForm').hidden=true;return;}
-  if(p.type==='cover'){$('labelForm').hidden=true;$('duration').value=.5;$('photoNumber').textContent='片頭封面';$('edit').textContent='編輯封面';pngEditor.refresh();return;}
+  if(p.type==='cover'){$('labelForm').hidden=true;$('duration').value=coverDuration();$('photoNumber').textContent='片頭封面';$('edit').textContent='編輯封面';pngEditor.refresh();return;}
   if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${sequence().findIndex(row=>row.id===p.id)+1} / ${sequence().length}`;
   for (const key of ['zoom','crop_x','crop_y']) $(key).value=cropPhoto()[key];
   $('fit').value=cropPhoto().fit || 'contain';

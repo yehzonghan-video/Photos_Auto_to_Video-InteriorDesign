@@ -14,7 +14,7 @@ from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
 from studio.photo_processing import fit_session
 from studio.access import require_password, logout
-from studio.cover import new_cover
+from studio.cover import new_cover, DURATION
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
@@ -40,11 +40,13 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
-if cover_added and st.session_state.photos:
+prior_cover_duration=0 if cover_added else st.session_state.get('cover_duration', .5 if st.session_state.get('cover_version')==1 else DURATION)
+if prior_cover_duration!=DURATION and st.session_state.photos and st.session_state.cover['enabled']:
     for slot in (st.session_state.overlays,st.session_state.comparison_overlays):
-        for overlay in slot:overlay['start']+=.5
-if st.session_state.get('cover_version')!=1:
-    st.session_state.cover_version=1;st.session_state.project_payload=None
+        for overlay in slot:overlay['start']=max(0,overlay['start']+DURATION-prior_cover_duration)
+st.session_state.cover_duration=DURATION
+if st.session_state.get('cover_version')!=2:
+    st.session_state.cover_version=2;st.session_state.project_payload=None
     st.session_state.editor_assets={};st.session_state.output=None
 if "overlay_assets" not in st.session_state:
     st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()

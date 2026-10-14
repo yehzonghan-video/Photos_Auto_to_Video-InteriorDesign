@@ -12,7 +12,7 @@
       ...remote.filter(row => !old.has(row.id))];
   }
   class DraftState {
-    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];this.overlays=[];this.comparisons=[];this.comparisonOverlays=[];this.template='items';this.cover=null;}
+    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];this.overlays=[];this.comparisons=[];this.comparisonOverlays=[];this.template='items';this.cover=null;this.coverSeconds=null;}
     restore(saved, session) {
       if (!saved || saved.session!==session || !Array.isArray(saved.rows)) return false;
       Object.assign(this, saved); this.rows=clone(saved.rows);return true;
@@ -47,7 +47,7 @@
     persisted(selection={}) {
       return {session:this.session,revision:this.revision,seq:this.seq,dirty:this.dirty,pending:this.pending,
         deleted:this.deleted,imported:this.imported,rows:metadata(this.rows),overlays:clone(this.overlays),
-        comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),template:this.template,selection};
+        comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),coverSeconds:this.coverSeconds,template:this.template,selection};
     }
   }
   const api={DraftState,metadata};

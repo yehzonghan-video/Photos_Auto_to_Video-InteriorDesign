@@ -13,6 +13,7 @@ from studio.rendering import label_tile,crop_photo,render_frame
 from studio.comparison import new_comparison
 from studio.overlays import load_asset
 from studio.sync import consume_editor_event
+from tests.app_helpers import authenticated_app
 
 
 def photo(name='case.png',color='red',size=(300,100)):
@@ -20,6 +21,20 @@ def photo(name='case.png',color='red',size=(300,100)):
 
 
 class CoverTests(unittest.TestCase):
+    def test_running_half_second_project_updates_png_times_only_once(self):
+        app=authenticated_app()
+        next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
+        app.session_state.cover_version=1;app.session_state.cover_duration=.5
+        source=next(iter(app.session_state.overlay_assets))
+        overlay=dict(id='old-cover-png',type='png',source=source,start=1,duration=1,x=.5,y=.5,
+                     width=.2,scale=1,rotation=0,opacity=1,layer=20,animation='none',exit_animation='none',enter=0,exit=0)
+        app.session_state.overlays=[overlay]
+        app.run();self.assertFalse(app.exception)
+        self.assertAlmostEqual(app.session_state.overlays[0]['start'],.8)
+        self.assertEqual(app.session_state.project_payload['cover_assets']['layout']['duration'],.3)
+        app.run();self.assertFalse(app.exception)
+        self.assertAlmostEqual(app.session_state.overlays[0]['start'],.8,'rerun不能再次扣除片頭差額')
+
     def test_ranges_validation_and_photo_source(self):
         p=photo();raw={**new_cover(),'title':'老屋88萬','highlights':[dict(start=2,end=4,color='#ff0000')]}
         c=validate_cover(raw,[p]);self.assertEqual(c['photo_id'],p.id)
@@ -50,7 +65,7 @@ class CoverTests(unittest.TestCase):
         data=export_video(photos,template='compare',comparisons=[clip],cover=cover,overlays=[o],assets={asset.id:asset})
         with tempfile.TemporaryDirectory(prefix='cover-clock-') as folder:
             path=Path(folder)/'case.mp4';path.write_bytes(data)
-            for n,expected in ((14,(0,0,255)),(15,(0,0,0)),(18,(0,255,0)),(30,(0,0,255))):
+            for n,expected in ((8,(0,0,255)),(9,(0,0,0)),(18,(0,255,0)),(30,(0,0,255))):
                 target=Path(folder)/f'{n}.png'
                 subprocess.run([ffmpeg_path(),'-y','-i',str(path),'-vf',f'select=eq(n\\,{n})','-frames:v','1',str(target)],capture_output=True,check=True,timeout=60)
                 with Image.open(target) as image:
@@ -67,7 +82,7 @@ class CoverTests(unittest.TestCase):
         consume_editor_event(state,dict(nonce='old-client-delete',session='s',base_revision=2,action='apply',photos=[second.metadata()]))
         self.assertTrue(state['editor_response']['ok']);self.assertEqual(state['cover']['photo_id'],second.id)
 
-    def test_real_full_hd_first_fifteen_frames_cover_then_original_scene(self):
+    def test_real_full_hd_first_nine_frames_cover_then_original_scene(self):
         p=photo(size=(108,192));c=validate_cover({**new_cover(),'title':'翻新88萬','highlights':[dict(start=2,end=4,color='#ffff00')]},[p])
         label=new_label(1);label.update(text='施工後',start=0,end=1,enter=0,animation='none',opacity=0,line=False);p.labels=[label]
         data=export_video([p],cover=c)
@@ -75,16 +90,16 @@ class CoverTests(unittest.TestCase):
             video=Path(folder)/'case.mp4';video.write_bytes(data)
             result=subprocess.run([ffmpeg_path(),'-i',str(video),'-f','null','-'],capture_output=True,timeout=60)
             self.assertEqual(result.returncode,0);log=result.stderr.decode('utf-8',errors='replace')
-            for value in ('h264','1080x1920','30 fps','00:00:01.50'):self.assertIn(value,log)
-            self.assertRegex(log,r'frame=\s*45')
-            select='+'.join(f'eq(n\\,{n})' for n in (0,14,15,30))
+            for value in ('h264','1080x1920','30 fps','00:00:01.30'):self.assertIn(value,log)
+            self.assertRegex(log,r'frame=\s*39')
+            select='+'.join(f'eq(n\\,{n})' for n in (0,8,9,24))
             subprocess.run([ffmpeg_path(),'-y','-i',str(video),'-vf',f'select={select}','-vsync','0',str(Path(folder)/'%02d.png')],capture_output=True,check=True,timeout=60)
-            for i,n in enumerate((0,14,15,30),1):
-                expected=cover_frame(c,[p]).convert('RGB') if n<15 else render_frame(crop_photo(p),p.labels,[label_tile(label)],(n-15)/30)
+            for i,n in enumerate((0,8,9,24),1):
+                expected=cover_frame(c,[p]).convert('RGB') if n<9 else render_frame(crop_photo(p),p.labels,[label_tile(label)],(n-9)/30)
                 with Image.open(Path(folder)/f'{i:02d}.png') as image:
                     delta=ImageChops.difference(expected.convert('L'),image.convert('L'))
                     self.assertLess(ImageStat.Stat(delta).mean[0],4)
-                    if n<15:
+                    if n<9:
                         self.assertLess(max(image.convert('RGB').getpixel((246,400))),10,'封面安全框不輸出')
 
 

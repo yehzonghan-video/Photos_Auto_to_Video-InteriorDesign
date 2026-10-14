@@ -48,13 +48,13 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,get draws(){return draws;}};
 }
-test('封面照片、反白局部字色、半秒時間軸與開關偏移全部本地；同步包含最新封面',async()=>{
+test('封面照片、反白局部字色、0.3秒時間軸與開關偏移全部本地；同步包含最新封面',async()=>{
   const env=environment(),rows=env.rows(),layout=JSON.parse(fs.readFileSync('frontend/cover-layout.json'));
   const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
   const o={id:'o',type:'png',source:'a',start:1,duration:2,x:.5,y:.5,width:.2,scale:1,rotation:0,opacity:1,layer:20,animation:'none',exit_animation:'none',enter:0,exit:0};
   const project={photos:rows,cover,cover_assets:{layout},assets:[{id:'a',image:'png',width:100,height:100}],overlays:[o]};
   await env.receive({project});const get=id=>env.elements.get(id);
-  assert.equal(vm.runInContext('total()',env.context),8.5);assert.equal(get('photos').children.length,3);
+  assert.equal(vm.runInContext('total()',env.context),8.3);assert.equal(get('photos').children.length,3);
   get('coverTitle').value='翻新88萬';get('coverTitle').oninput();
   get('coverTitle').selectionStart=2;get('coverTitle').selectionEnd=4;get('coverTitle').onselect();env.context.document.getElementById('coverSelectedColor').value='#ff0000';get('coverApplyColor').onclick();
   get('coverPhoto').value='p2';get('coverPhoto').oninput();assert.equal(env.changes().length,0);
@@ -68,7 +68,7 @@ test('封面照片、反白局部字色、半秒時間軸與開關偏移全部�
   vm.runInContext('recording=true;draw()',env.context);assert.equal(get('safeAreaGuide').hidden,true,'錄製隱藏提示');
   vm.runInContext('recording=false;draw()',env.context);assert.equal(get('safeAreaGuide').hidden,false);
   assert.equal(vm.runInContext('draft.cover.highlights[0].end',env.context),4);
-  get('coverEnabled').checked=false;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),.5);
+  get('coverEnabled').checked=false;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),.7);
   get('coverEnabled').checked=true;get('coverEnabled').onchange();assert.equal(vm.runInContext('draft.overlays[0].start',env.context),1);
   await env.receive({project,revision:2});assert.equal(vm.runInContext('draft.cover.title',env.context),'翻新88萬');
   const promise=get('applyChanges').onclick(),event=env.changes()[0].value;
@@ -76,6 +76,24 @@ test('封面照片、反白局部字色、半秒時間軸與開關偏移全部�
   await env.receive({project:{...project,cover:event.cover,overlays:event.overlays},revision:3,response:{nonce:event.nonce,ok:true}});await promise;
   assert.equal(env.changes().length,1);
 });
+test('舊0.5秒封面的未套用草稿保留文字與PNG，縮短時間只遷移一次且不送Python',async()=>{
+  const env=environment(),layout=JSON.parse(fs.readFileSync('frontend/cover-layout.json'));
+  const cover={enabled:true,title:'原標題',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const png={id:'o',type:'png',source:'a',start:1,duration:2,x:.5,y:.5,width:.2,scale:1,rotation:0,opacity:1,layer:20,animation:'none',exit_animation:'none',enter:0,exit:0};
+  const project={photos:env.rows(),cover,cover_assets:{layout},assets:[{id:'a',image:'png',width:100,height:100}],overlays:[png]};
+  await env.receive({project});env.elements.get('coverTitle').value='未套用標題';env.elements.get('coverTitle').oninput();
+  const saved=JSON.parse(env.storage.get('interior-studio-draft'));delete saved.coverSeconds;
+  saved.selection.time=1;saved.selection.selectedPhoto='p1';env.storage.set('interior-studio-draft',JSON.stringify(saved));
+  const rebuilt=environment(env.storage),remote={...project,overlays:[{...png,start:.8}]};
+  await rebuilt.receive({project:remote,revision:2});
+  assert.equal(vm.runInContext('draft.cover.title',rebuilt.context),'未套用標題');
+  assert.equal(vm.runInContext('draft.overlays[0].start',rebuilt.context),.8);
+  assert.equal(vm.runInContext('time',rebuilt.context),.8);
+  await rebuilt.receive({project:remote,revision:2});
+  assert.equal(vm.runInContext('draft.overlays[0].start',rebuilt.context),.8);
+  assert.equal(rebuilt.changes().length,0);
+});
+
 test('安全框開關與預覽只處理DOM；標題可拖出內框、rerun和重建保留人工位置',async()=>{
   const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
   const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));

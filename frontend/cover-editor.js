@@ -1,7 +1,7 @@
 // 封面與局部字色只操作本地草稿；套用／輸出時沿用既有整批同步。
 (function(root){
   let layout=typeof module!=='undefined'?require('./cover-layout.json'):null;
-  const $=id=>document.getElementById(id),duration=c=>c?.enabled===true ? .5 : 0;
+  const $=id=>document.getElementById(id),duration=c=>c?.enabled===true ? layout.duration : 0;
   function configure(value){if(value)layout=value;}
   function key(c){return JSON.stringify([c.title,c.color,c.font_size,c.highlights,2]);}
   function colors(c){const result=Array.from(c.title,()=>c.color);for(const r of c.highlights)for(let i=r.start;i<r.end;i++)result[i]=r.color;return result;}

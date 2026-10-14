@@ -1,4 +1,4 @@
-"""固定半秒封面：共用照片來源與影片管線，局部字色使用Unicode字元索引。"""
+"""固定0.3秒封面：共用照片來源與影片管線，局部字色使用Unicode字元索引。"""
 from functools import lru_cache
 from pathlib import Path
 import json
@@ -8,7 +8,7 @@ from .rendering import font_path
 
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'cover-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'opening-template.png'
-DURATION = .5
+DURATION = LAYOUT['duration']
 
 
 def new_cover():
