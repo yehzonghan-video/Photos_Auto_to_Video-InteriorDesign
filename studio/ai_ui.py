@@ -31,15 +31,19 @@ def ai_panel(photos, state):
             state["ai_chosen"] = [ident for ident in state["ai_chosen"] if ident in ids]
         chosen = st.multiselect("要分析的照片（可一次選全部）", ids,
             max_selections=MAX_BATCH, format_func=lambda ident: next(p.name for p in photos if p.id == ident), key="ai_chosen")
-        force = st.checkbox("重新分析（忽略快取，會再次使用 API 額度）", key="ai_force")
+        force = st.checkbox("重新分析所選未完成照片（保留成功結果）", key="ai_force")
         missing = unfinished_photos(photos, model, state)
+        missing_ids = {p.id for p in missing}
+        selected_targets = [p for p in photos if p.id in chosen and (not force or p.id in missing_ids)]
+        if force:
+            st.caption(f"只重送所選未完成的 {len(selected_targets)} 張照片；已成功照片不重送。")
         primary, repair = st.columns(2)
-        clicked = primary.button("AI 分析並加入標籤", disabled=not ready or not consent or not chosen or locked,
+        clicked = primary.button("AI 分析並加入標籤", disabled=not ready or not consent or not selected_targets or locked,
                                  type="primary", use_container_width=True)
         retry = repair.button(f"補查未完成照片（{len(missing)} 張）", disabled=not ready or not consent or not missing or locked,
                               use_container_width=True)
         if clicked or retry:
-            targets = missing if retry else [p for p in photos if p.id in chosen]
+            targets = missing if retry else selected_targets
             bar = st.progress(0., text="照片已排入佇列…")
             table = st.empty()
             with st.status(f"正在分析 {len(targets)} 張照片", expanded=True) as waiting:
@@ -67,6 +71,14 @@ def ai_panel(photos, state):
                 st.caption(f"模型：{state['ai_queue'][0]['model']}")
                 st.table([{"照片": row["name"], "狀態": row["status"], "呼叫次數": row["attempts"]}
                           for row in state["ai_queue"] if row["photo_id"] in names])
+                diagnostics = [{"照片": names[row['photo_id']], "診斷代碼": attempt.get('request_id'),
+                    "第幾次": attempt.get('attempt'), "HTTP": attempt.get('http_status'),
+                    "API狀態": attempt.get('api_status'), "錯誤類型": attempt.get('error_type'),
+                    "分類": attempt.get('kind', 'success'), "耗時秒": attempt.get('elapsed_seconds')}
+                    for row in state['ai_queue'] if row['photo_id'] in names for attempt in row.get('attempt_logs', [])]
+                if diagnostics:
+                    st.table(diagnostics)
+                    st.caption('HTTP空白代表未收到HTTP回覆；用診斷代碼搜尋Cloud Logs中的GEMINI_DIAGNOSTIC。')
         for report in state.get("ai_reports", []):
             if report["photo_id"] not in names:
                 continue
@@ -78,5 +90,10 @@ def ai_panel(photos, state):
                     st.info(f"{names[report['photo_id']]}：分析完成，未找到適合介紹的項目，可手動新增。")
             else:
                 st.error(f"{names[report['photo_id']]}：{report['error']}")
+                logs = report.get('attempt_logs', [])
+                if logs:
+                    last = logs[-1]
+                    st.caption(f"診斷代碼：{last['request_id']} · HTTP：{last.get('http_status') or '無回覆'} · "
+                               f"類型：{last.get('error_type', '未知')} · 耗時：{last.get('elapsed_seconds')}秒")
         if state.get("ai_reports"):
             st.caption("不需要另按採用。到編輯器直接刪改標籤；既有手動內容保留。低信心項目仍需你確認，裁切外的物件不加入。")

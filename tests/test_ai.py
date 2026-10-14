@@ -119,14 +119,14 @@ class AITests(unittest.TestCase):
             on_result=lambda photo,result:auto_import(state,photo,result))
         self.assertEqual(len(calls),12);self.assertEqual(len(state['ai_imports']),12)
 
-    def test_transient_retry_once_then_repair_only_failed_and_model_hash_audit(self):
+    def test_transient_retry_bounded_then_repair_only_failed_and_model_hash_audit(self):
         photos=[sample(),sample()];photos[1].original+=b'different';state={};counts={}
         def analyzer(photo,key,model):
             counts[photo.id]=counts.get(photo.id,0)+1
             if photo is photos[0]:raise AIError('暫時連線失敗',retryable=True,retry_after=2)
             return []
         report=analyze_batch(photos,'mock',DEFAULT_MODEL,state,analyzer=analyzer,budget=CallBudget(),sleeper=lambda seconds:None)
-        self.assertEqual([r['ok'] for r in report],[False,True]);self.assertEqual(counts[photos[0].id],2)
+        self.assertEqual([r['ok'] for r in report],[False,True]);self.assertEqual(counts[photos[0].id],3)
         self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[photos[0]])
         repair=analyze_batch([photos[0]],'mock',DEFAULT_MODEL,state,analyzer=lambda *args:[],budget=CallBudget())
         self.assertTrue(repair[0]['ok']);self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),[])
@@ -138,7 +138,7 @@ class AITests(unittest.TestCase):
         photos=[sample() for _ in range(3)];state={};calls=[]
         def quota(photo,key,model):calls.append(photo.id);raise AIError('429',code=429,retryable=True,retry_after=60)
         reports=analyze_batch(photos,'mock',DEFAULT_MODEL,state,analyzer=quota,budget=CallBudget(),sleeper=lambda seconds:None)
-        self.assertEqual(len(calls),2);self.assertFalse(any(r['ok'] for r in reports))
+        self.assertEqual(len(calls),3);self.assertFalse(any(r['ok'] for r in reports))
         self.assertEqual(unfinished_photos(photos,DEFAULT_MODEL,state),photos)
         calls.clear()
         def auth(photo,key,model):calls.append(photo.id);raise AIError('403',code=403)

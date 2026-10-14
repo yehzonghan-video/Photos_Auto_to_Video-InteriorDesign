@@ -14,6 +14,7 @@ from google.genai import types
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from .models import MAX_PHOTOS
+from .ai_diagnostics import classify_error, log_event, retry_delay, MAX_ATTEMPTS, MAX_RETRY_WAIT
 
 DEFAULT_MODEL = "gemini-3.1-flash-lite"
 # 2026-10-13 官方 Standard 免費層；新增模型前需重新查證價格及 JSON 支援。
@@ -35,9 +36,11 @@ BoxCoordinate = Annotated[int, Field(ge=0, le=1000, strict=True)]
 
 class AIError(ValueError):
     """可直接顯示的安全錯誤訊息，不包含請求內容或金鑰。"""
-    def __init__(self, message, *, code=None, retryable=False, retry_after=0, kind=None):
+    def __init__(self, message, *, code=None, retryable=False, retry_after=None, kind=None,
+                 retry_source=None, diagnostics=None):
         super().__init__(message)
         self.code, self.retryable, self.retry_after, self.kind = code, retryable, retry_after, kind
+        self.retry_source, self.diagnostics = retry_source, diagnostics or {}
 
 
 class RenovationItem(BaseModel):
@@ -103,18 +106,7 @@ def cache_key(photo, model):
 
 
 def safe_error(exc):
-    code = getattr(exc, "code", None)
-    if code == 429:
-        return "Gemini 額度已用完或呼叫太頻繁（429）。請稍後手動重試；仍可手動製作影片。"
-    if code in (401, 403):
-        return "Gemini 金鑰無效或沒有使用權限；請檢查伺服器的金鑰、API 限制及可用地區。"
-    if code == 400:
-        return "Gemini 拒絕請求（400）。請檢查金鑰與模型設定；程式不自動切換模型。"
-    if code == 404:
-        return "此帳號無法使用設定的 Gemini 模型（404）。2.5 Flash 已不向新使用者開放，可由管理者設定 gemini-3.8-flash；程式不自動切換。"
-    if isinstance(exc, (ValidationError, ValueError)):
-        return "AI 回傳 JSON 缺漏欄位、座標無效或格式不符，未匯入標籤。請手動重試或新增標籤。"
-    return "Gemini 連線失敗、服務忙碌或回覆逾時；仍可手動製作影片。"
+    return classify_error(exc)['message']
 
 
 def image_part(photo):
@@ -127,27 +119,42 @@ def image_part(photo):
     return types.Part.from_bytes(data=out.getvalue(), mime_type="image/jpeg")
 
 
-def client_for(key):
+def client_for(key, on_response=None):
     return genai.Client(api_key=key, vertexai=False,
         http_options=types.HttpOptions(timeout=60000,
+            client_args={'event_hooks':{'response':[on_response]}} if on_response else None,
             retry_options=types.HttpRetryOptions(attempts=1)))
 
 
-def analyze_photo(photo, key, model=DEFAULT_MODEL, client_factory=client_for):
+def analyze_photo(photo, key, model=DEFAULT_MODEL, client_factory=client_for, *,
+                  batch_id=None, attempt=1, diagnostics=None):
     if model not in FREE_MODELS:
         raise AIError("此模型未確認具有免費層，已停止呼叫。")
     if not key:
         raise AIError("尚未設定 GEMINI_API_KEY；仍可手動製作影片。")
+    diagnostic = diagnostics if diagnostics is not None else {}
+    diagnostic.update(request_id=uuid.uuid4().hex[:16], batch_id=batch_id, photo_id=photo.id,
+                      model=model, attempt=attempt, http_status=None, phase='image_preparation')
+    started = None
+    def on_response(response):
+        diagnostic['http_status'] = response.status_code
     try:
         options = dict(response_mime_type="application/json",
                        response_json_schema=Analysis.model_json_schema(),
                        temperature=.2, max_output_tokens=4096)
         if model.startswith("gemini-2.5-"):
             options["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-        with client_factory(key) as client:
+        part = image_part(photo)
+        factory = client_for(key, on_response) if client_factory is client_for else client_factory(key)
+        with factory as client:
+            started = time.monotonic()
+            diagnostic['phase'] = 'request'
+            log_event('request_start', **diagnostic, timeout_seconds=60)
             response = client.models.generate_content(model=model,
-                contents=[PROMPT, image_part(photo)],
+                contents=[PROMPT, part],
                 config=types.GenerateContentConfig(**options))
+            diagnostic['elapsed_seconds'] = round(time.monotonic() - started, 3)
+        diagnostic['phase'] = 'response_validation'
         parsed = Analysis.model_validate_json(response.text or "")
         items = []
         for item in parsed.items:
@@ -155,15 +162,23 @@ def analyze_photo(photo, key, model=DEFAULT_MODEL, client_factory=client_for):
             row["box_2d"] = [v / 1000 for v in row["box_2d"]]
             row["needs_review"] = row["needs_review"] or row["confidence_level"] != "高"
             items.append(row)
+        log_event('request_end', **diagnostic, outcome='success', item_count=len(items))
         return items
     except Exception as exc:
         # 不展示 SDK 原始例外，避免金鑰、照片或請求 URL 出現在公開頁面。
-        code = getattr(exc, "code", None)
-        retryable = code in (429, 500, 502, 503, 504) or isinstance(exc, ValidationError)
-        if code is None and not isinstance(exc, ValueError):
-            retryable = True
-        raise AIError(safe_error(exc), code=code, retryable=retryable,
-                      retry_after=60 if code == 429 else 2) from None
+        info = classify_error(exc)
+        elapsed = diagnostic.get('elapsed_seconds')
+        if elapsed is None and started is not None:
+            elapsed = round(time.monotonic()-started, 3)
+        diagnostic.update(elapsed_seconds=elapsed,
+                          error_type=info['error_type'], api_status=info['api_status'],
+                          kind=info['kind'], quota_ids=info['quota_ids'], retryable=info['retryable'],
+                          retry_after_seconds=info['retry_after'], retry_source=info['retry_source'])
+        if info['code'] is not None:
+            diagnostic['http_status'] = info['code']
+        log_event('request_end', **diagnostic, outcome='failure')
+        raise AIError(info['message'], code=info['code'], kind=info['kind'], retryable=info['retryable'],
+                      retry_after=info['retry_after'], retry_source=info['retry_source'], diagnostics=dict(diagnostic)) from None
 
 
 class CallBudget:
@@ -219,13 +234,15 @@ def analyze_batch(photos, key, model, state, force=False, progress=None,
         raise AIError("照片不可重複加入分析佇列。")
     if not key or model not in FREE_MODELS:
         raise AIError("請設定有效金鑰並選擇已確認具有免費層的模型。")
-    analyzer = analyze_photo if analyzer is None else analyzer
+    native_analyzer = analyzer is None
+    batch_id = uuid.uuid4().hex[:16]
     cache = state.setdefault("ai_cache", {})
     results = state.setdefault("ai_results", {})
     queue = [dict(photo_id=p.id, name=p.name, content_hash=content_hash(p), model=model,
-                  status="待分析", attempts=0) for p in photos]
+                  status="待分析", attempts=0, attempt_logs=[]) for p in photos]
     state["ai_queue"] = queue
     pending = state.setdefault("ai_pending", {})
+    previously_pending = set(pending)
     for photo in photos:
         pending[f"{photo.id}:{cache_key(photo, model)}"] = True
     reports = []
@@ -234,12 +251,12 @@ def analyze_batch(photos, key, model, state, force=False, progress=None,
     for index, photo in enumerate(photos):
         row = queue[index]
         ident = cache_key(photo, model)
-        cached = ident in cache and not force
+        cached = ident in cache and not force and f'{photo.id}:{ident}' not in previously_pending
         try:
             if not cached:
                 if halt:
                     raise AIError(halt, kind="blocked")
-                for attempt in range(2):
+                for attempt in range(MAX_ATTEMPTS):
                     if state.get("ai_calls", 0) >= SESSION_CALLS:
                         raise AIError("目前工作階段已達 20 次 AI 呼叫上限；未完成照片已保留，仍可手動製片。", kind="session")
                     # 其他工作階段也可能搶到額度，最多等候兩個分鐘窗口。
@@ -251,6 +268,8 @@ def analyze_batch(photos, key, model, state, force=False, progress=None,
                             if error.kind != "rate" or slot_attempt == 2:
                                 raise
                             row["status"] = "等待呼叫額度"
+                            log_event('local_budget_wait', batch_id=batch_id, photo_id=photo.id,
+                                      kind=error.kind, wait_seconds=error.retry_after)
                             wait_with_progress(min(error.retry_after, 60), index, len(photos),
                                 f"{photo.name}：等待下一個呼叫窗口", progress, sleeper)
                     state["ai_calls"] = state.get("ai_calls", 0) + 1
@@ -258,28 +277,57 @@ def analyze_batch(photos, key, model, state, force=False, progress=None,
                     if progress:
                         progress(index / len(photos), f"{index+1}/{len(photos)} · {photo.name} · {row['status']}")
                     try:
-                        items = analyzer(photo, key, model)
+                        diagnostic = {}
+                        if native_analyzer:
+                            items = analyze_photo(photo, key, model, batch_id=batch_id,
+                                                  attempt=attempt+1, diagnostics=diagnostic)
+                        else:
+                            items = analyzer(photo, key, model)
+                        if diagnostic:
+                            row['attempt_logs'].append(dict(diagnostic))
                         break
                     except AIError as error:
-                        if not error.retryable or attempt == 1:
+                        if error.diagnostics:
+                            row['attempt_logs'].append(dict(error.diagnostics))
+                        if not error.retryable or error.kind == 'daily' or attempt+1 >= MAX_ATTEMPTS:
+                            raise
+                        delay, source = retry_delay(error, attempt+1)
+                        if delay > MAX_RETRY_WAIT:
+                            error.retry_deferred = True
+                            log_event('retry_deferred', batch_id=batch_id, photo_id=photo.id,
+                                      request_id=error.diagnostics.get('request_id'), http_status=error.code,
+                                      wait_seconds=delay, retry_source=source, max_wait_seconds=MAX_RETRY_WAIT)
                             raise
                         row["status"] = "等待補試"
-                        wait_with_progress(min(error.retry_after, 60), index, len(photos),
-                            f"{photo.name}：暫時失敗，補試一次", progress, sleeper)
+                        log_event('retry_scheduled', batch_id=batch_id, photo_id=photo.id,
+                                  request_id=error.diagnostics.get('request_id'), http_status=error.code,
+                                  kind=error.kind, attempt=attempt+1, next_attempt=attempt+2,
+                                  wait_seconds=delay, retry_source=source)
+                        wait_with_progress(delay, index, len(photos),
+                            f"{photo.name}：{error} · 補試 {attempt+1}/{MAX_ATTEMPTS-1}", progress, sleeper)
                 cache[ident] = dict(id=uuid.uuid4().hex, items=items, model=model,
                                    content_hash=content_hash(photo))
             results[photo.id] = cache[ident]
             row["status"] = "使用快取" if cached else "完成"
             report = dict(photo_id=photo.id, cached=cached, ok=True, attempts=row["attempts"],
-                          count=len(cache[ident]["items"]))
+                          count=len(cache[ident]["items"]), attempt_logs=row['attempt_logs'])
             if on_result:
                 on_result(photo, cache[ident])
             pending.pop(f"{photo.id}:{ident}", None)
         except AIError as exc:
-            row.update(status="未完成" if exc.kind == "blocked" else "失敗", error=str(exc))
-            report = dict(photo_id=photo.id, ok=False, error=str(exc), attempts=row["attempts"])
-            if exc.code in (400, 401, 403, 404, 429) or exc.kind in ("daily", "session", "rate"):
-                halt = "前一張遭遇帳號、模型或額度限制，剩餘照片暫停；請修正設定後按「補查未完成照片」。"
+            deferred = getattr(exc, 'retry_deferred', False)
+            message = str(exc) + (' API要求等待超過120秒，本次停止補試，請稍後補查。' if deferred else '')
+            row.update(status="未完成" if exc.kind == "blocked" else "失敗", error=message)
+            report = dict(photo_id=photo.id, ok=False, error=message, attempts=row["attempts"],
+                          code=exc.code, kind=exc.kind, attempt_logs=row['attempt_logs'])
+            if exc.kind == 'daily':
+                halt = "每日額度已耗盡，剩餘照片未送出；請等額度重置後補查，已成功的結果保留。"
+            elif exc.code in (400, 401, 403, 404, 429) or exc.kind in ("session", "rate") or deferred:
+                halt = "前一張遭遇帳號、模型或額度限制／較長等待，剩餘照片未送出；請稍後或修正設定後補查。"
+            if halt:
+                log_event('request_skipped' if exc.kind == 'blocked' else 'batch_pause',
+                          batch_id=batch_id, photo_id=photo.id, http_status=exc.code,
+                          kind=exc.kind, attempts=row['attempts'], remaining=len(photos)-index-1)
         reports.append(report)
         if progress:
             progress((index + 1) / len(photos), f"已檢查 {index+1}/{len(photos)} 張 · {photo.name} · {row['status']}")
