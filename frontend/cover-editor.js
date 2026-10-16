@@ -35,7 +35,7 @@
     constructor(hooks){this.hooks=hooks;this.template=null;this.calibrated=null;this.local=null;this.selection=null;this.scene=null;
       $('coverEnabled').onchange=()=>{const c=hooks.cover();if(!c||hooks.locked())return;const prior=duration(c);c.enabled=$('coverEnabled').checked;
         const delta=duration(c)-prior;for(const slot of hooks.slots())for(const o of slot)o.start=Math.max(0,o.start+delta);
-        if(c.body?.auto_timing===false){c.body.start=Math.max(0,c.body.start+delta);c.body.end=Math.max(0,c.body.end+delta);}
+        for(const k of ['','logo_'])if(c.body?.[k+'auto_timing']===false){c.body[k+'start']=Math.max(0,c.body[k+'start']+delta);c.body[k+'end']=Math.max(0,c.body[k+'end']+delta);}
         hooks.change();};
       $('coverTitle').oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.title=$('coverTitle').value;c.highlights=[];this.selection=null;hooks.change();};
       const capture=()=>{this.selection=selection($('coverTitle'),this.selection);

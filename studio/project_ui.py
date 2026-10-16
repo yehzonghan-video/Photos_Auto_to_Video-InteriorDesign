@@ -2,7 +2,7 @@
 import streamlit as st
 from .project_io import MAX_ARCHIVE_MB, build_archive, load_archive, install_project, archive_filename
 
-BGM_API_VERSION = 8
+BGM_API_VERSION = 9
 
 
 def prepare_download(state):

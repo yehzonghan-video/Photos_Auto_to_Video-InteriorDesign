@@ -5,11 +5,13 @@
   const $=id=>document.getElementById(id),clone=v=>JSON.parse(JSON.stringify(v));
   function configure(value){if(value)layout=value;}
   const MIN=1/30,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  function newBody(){return {enabled:true,logo_enabled:true,follow_cover:true,title:'室內設計案例',color:'#ffffff',highlights:[],...layout.defaults,auto_timing:true,start:0,end:null,version:4};}
-  function upgrade(b){if(!b||(b.version??0)>=4)return false;
+  function newBody(){return {enabled:true,logo_enabled:true,follow_cover:true,title:'室內設計案例',color:'#ffffff',highlights:[],...layout.defaults,auto_timing:true,start:0,end:null,logo_auto_timing:true,logo_start:0,logo_end:null,version:5};}
+  function upgrade(b){if(!b||(b.version??0)>=5)return false;
+    if((b.version??0)<4){
     if(b.font_size===120||((b.version??0)<2&&b.font_size===88))b.font_size=layout.defaults.font_size;
     if((b.x??.5)===.5&&[(350+180)/1920,(410+180)/1920].includes(b.y))b.y=layout.defaults.y;
-    b.font_size??=newBody().font_size;b.auto_timing??=true;b.start??=0;b.end??=null;b.x??=newBody().x;b.y??=newBody().y;b.version=4;return true;}
+    b.font_size??=newBody().font_size;b.auto_timing??=true;b.start??=0;b.end??=null;b.x??=newBody().x;b.y??=newBody().y;}
+    b.logo_auto_timing??=true;b.logo_start??=0;b.logo_end??=null;b.version=5;return true;}
   function box(b){const size=layout.title;return {x:Math.round((b.x??.5)*1080-size.width/2),
     y:Math.round((b.y??newBody().y)*1920-size.height/2),width:size.width,height:size.height};}
   function alphaBounds(image){const canvas=image.getContext?image:document.createElement('canvas');
@@ -21,11 +23,17 @@
   function span(b,prefix,length){if(length-prefix<MIN-1e-8)return {start:prefix,end:prefix};
     if(b.auto_timing??true)return {start:prefix,end:length};
     const start=clamp(b.start,prefix,length-MIN),end=clamp(b.end,start+MIN,length);return {start,end};}
-  function fit(b,prefix,length){if(!b||b.auto_timing||length-prefix<MIN-1e-8)return;
-    Object.assign(b,span(b,prefix,length));}
+  function logoTiming(b){return {enabled:b.logo_enabled,auto_timing:b.logo_auto_timing??true,start:b.logo_start??0,end:b.logo_end??null};}
+  function logoSpan(b,prefix,length){return span(logoTiming(b),prefix,length);}
+  function logoVisible(b,time,prefix,length){return visible(logoTiming(b),time,prefix,length);}
+  function fit(b,prefix,length){if(!b||length-prefix<MIN-1e-8)return;
+    if(!b.auto_timing)Object.assign(b,span(b,prefix,length));
+    if(b.logo_auto_timing===false){const range=logoSpan(b,prefix,length);b.logo_start=range.start;b.logo_end=range.end;}}
   function visible(b,time,prefix,length){const range=span(b,prefix,length);return b.enabled&&time+1e-8>=range.start&&time<range.end-1e-8;}
   function item(cover,prefix,length){const b=cover?.body;if(!b?.enabled)return null;const range=span(b,prefix,length);
     return range.end>range.start?{id:'project-body-title',source:'project-body-title',type:'body_title',name:effective(cover).title,start:range.start,duration:range.end-range.start,layer:0}:null;}
+  function logoItem(cover,prefix,length){const b=cover?.body;if(!b?.logo_enabled)return null;const range=logoSpan(b,prefix,length);
+    return range.end>range.start?{id:'project-body-logo',source:'project-body-logo',type:'body_logo',name:'正文LOGO',start:range.start,duration:range.end-range.start,layer:0}:null;}
   function effective(cover){const b=cover.body,s=b.follow_cover?cover:b;return {title:s.title,color:s.color,highlights:s.highlights,font_size:b.font_size};}
   function detach(cover){const style=clone(effective(cover));Object.assign(cover.body,style,{follow_cover:false});}
   function validate(cover){const b=cover?.body;if(!b)return null;
@@ -33,6 +41,8 @@
     for(const field of ['x','y'])if(b[field]!=null&&(!Number.isFinite(b[field])||b[field]<0||b[field]>1))return '正文位置需為0～100%。';
     if(typeof (b.auto_timing??true)!=='boolean'||!Number.isFinite(b.start??0)||(b.start??0)<0||(b.start??0)>120||
       (b.end!=null&&(!Number.isFinite(b.end)||b.end<0||b.end>120))||b.auto_timing===false&&(b.end==null||b.end-b.start<MIN-1e-8))return '請確認正文標題開始與結束時間，至少一影格。';
+    if(typeof (b.logo_auto_timing??true)!=='boolean'||!Number.isFinite(b.logo_start??0)||(b.logo_start??0)<0||(b.logo_start??0)>120||
+      (b.logo_end!=null&&(!Number.isFinite(b.logo_end)||b.logo_end<0||b.logo_end>120))||b.logo_auto_timing===false&&(b.logo_end==null||b.logo_end-b.logo_start<MIN-1e-8))return '請確認正文LOGO開始與結束時間，至少一影格。';
     const check=(s,required)=>C.validate({...s,enabled:required,photo_id:''},[],240);
     const stored=check(b,b.enabled&&!b.follow_cover);
     if(stored)return stored.replace(/封面/g,'正文');
@@ -45,7 +55,12 @@
     svg.append(rect);}
   class BodyEditor{
     constructor(hooks){this.hooks=hooks;this.template=null;this.calibrated=null;this.local=null;this.selection=null;
-      for(const [id,field] of [['bodyEnabled','enabled'],['bodyLogo','logo_enabled']])$(id).onchange=()=>{if(hooks.locked())return;hooks.cover().body[field]=$(id).checked;hooks.change();};
+      for(const [id,field] of [['bodyEnabled','enabled'],['bodyLogo','logo_enabled']])$(id).onchange=()=>{if(hooks.locked())return;hooks.cover().body[field]=$(id).checked;hooks.change(field==='logo_enabled'?'body_logo':'body_title');};
+      $('logoAutoTime').onchange=()=>{if(hooks.locked())return;const b=hooks.cover().body,range=logoSpan(b,hooks.prefix(),hooks.length());
+        b.logo_auto_timing=$('logoAutoTime').checked;if(!b.logo_auto_timing){b.logo_start=range.start;b.logo_end=range.end;}hooks.change('body_logo');};
+      for(const [id,field] of [['logoStart','logo_start'],['logoEnd','logo_end']])$(id).oninput=()=>{if(hooks.locked())return;
+        const b=hooks.cover().body,range=logoSpan(b,hooks.prefix(),hooks.length()),value=Number($(id).value);if(!Number.isFinite(value))return;
+        Object.assign(b,{logo_auto_timing:false,logo_start:range.start,logo_end:range.end,[field]:Math.round(value*30)/30});fit(b,hooks.prefix(),hooks.length());hooks.change('body_logo');};
       for(const [id,field] of [['bodyX','x'],['bodyY','y']])$(id).oninput=()=>{if(hooks.locked())return;const b=hooks.cover().body,value=Number($(id).value)/100;if(!Number.isFinite(value))return;
         this.position(field==='x'?value:b.x,field==='y'?value:b.y);hooks.change();};
       $('bodyResetPosition').onclick=()=>{if(hooks.locked())return;const b=hooks.cover().body;Object.assign(b,{x:newBody().x,y:newBody().y});hooks.change();};
@@ -72,6 +87,10 @@
       for(const [id,k] of [['bodyStart','start'],['bodyEnd','end']]){if(document.activeElement!==$(id))$(id).value=Number(range[k].toFixed(3));
         $(id).min=this.hooks.prefix();$(id).max=this.hooks.length();$(id).disabled=this.hooks.locked()||range.end===range.start;}
       $('bodyTiming').textContent=`全片 ${range.start.toFixed(2)}～${range.end.toFixed(2)} 秒 · 持續 ${(range.end-range.start).toFixed(2)} 秒`;
+      const logo=logoSpan(b,this.hooks.prefix(),this.hooks.length());$('logoAutoTime').checked=b.logo_auto_timing??true;
+      for(const [id,k] of [['logoStart','start'],['logoEnd','end']]){if(document.activeElement!==$(id))$(id).value=Number(logo[k].toFixed(3));
+        $(id).min=this.hooks.prefix();$(id).max=this.hooks.length();$(id).disabled=this.hooks.locked()||logo.end===logo.start;}
+      $('logoTiming').textContent=`LOGO全片 ${logo.start.toFixed(2)}～${logo.end.toFixed(2)} 秒 · 持續 ${(logo.end-logo.start).toFixed(2)} 秒`;
       for(const [id,k] of [['bodyTitle','title'],['bodyColor','color'],['bodySize','font_size']])if(document.activeElement!==$(id)&&String($(id).value)!==String(s[k]))$(id).value=s[k];
       $('bodyTitle').readOnly=b.follow_cover; // 唯讀可反白，disabled則無法選字。
       for(const id of ['bodyTitle','bodyColor','bodySelectedColor','bodyApplyColor','bodyClearColors'])$(id).disabled=this.hooks.locked();
@@ -93,12 +112,12 @@
       b.x=clamp(x,Math.max(0,(size.width/2-r[0])/1080),Math.min(1,(1080+size.width/2-r[2])/1080));
       b.y=clamp(y,Math.max(0,(size.height/2-r[1])/1920),Math.min(1,(1920+size.height/2-r[3])/1920));}
     draw(ctx,time=0,selected=false){const c=this.hooks.cover(),b=c?.body;if(!b)return;
-      if(b.logo_enabled&&this.template){const scale=Math.min(1080/this.template.naturalWidth,1920/this.template.naturalHeight),w=this.template.naturalWidth*scale;
+      if(logoVisible(b,time,this.hooks.prefix(),this.hooks.length())&&this.template){const scale=Math.min(1080/this.template.naturalWidth,1920/this.template.naturalHeight),w=this.template.naturalWidth*scale;
         ctx.drawImage(this.template,(1080-w)/2,0,w,this.template.naturalHeight*scale);}
       if(!visible(b,time,this.hooks.prefix(),this.hooks.length()))return;const placed=box(b),tile=this.tile().image;ctx.drawImage(tile,placed.x,placed.y,placed.width,placed.height);
       if(selected){const r=this.bounds();ctx.save();ctx.strokeStyle='#eac181';ctx.lineWidth=4;ctx.setLineDash([12,8]);ctx.strokeRect(r.x-6,r.y-6,r.width+12,r.height+12);ctx.restore();}
     }
   }
-  const api={configure,newBody,upgrade,box,span,fit,visible,item,effective,detach,validate,key,mountGuide,BodyEditor};
+  const api={configure,newBody,upgrade,box,span,fit,visible,item,logoTiming,logoSpan,logoVisible,logoItem,effective,detach,validate,key,mountGuide,BodyEditor};
   if(typeof module!=='undefined')module.exports=api;else root.StudioBody=api;
 })(typeof window!=='undefined'?window:this);

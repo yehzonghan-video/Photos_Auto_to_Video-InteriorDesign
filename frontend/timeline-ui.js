@@ -10,10 +10,11 @@
         e.preventDefault();hooks.seek(hooks.time()+(e.key==='ArrowLeft'?-1:1)/30);}});
     }
     draw(){
-      const h=this.hooks,p=h.photos(),prefix=h.offset?.()||0,length=StudioTimeline.total(p)+prefix,all=StudioTimeline.items(p,h.overlays(),prefix,h.title?.());
+      const h=this.hooks,p=h.photos(),prefix=h.offset?.()||0,length=StudioTimeline.total(p)+prefix,all=StudioTimeline.items(p,h.overlays(),prefix,h.title?.(),h.logo?.());
       this.length=length;this.width=Math.round(Math.max(600,this.canvas.parentElement?.clientWidth||900)*this.zoom);
       const tracks=[{name:p[0]?.type==='comparison'?'對比':'照片',color:'#5d7760',rows:1,clips:all.filter(i=>['photo','comparison','cover'].includes(i.type)).map(item=>({item,lane:0}))},
         {name:'正文',color:'#a34b63',...StudioTimeline.lanes(all.filter(i=>i.type==='body_title'))},
+        {name:'LOGO',color:'#467e8d',...StudioTimeline.lanes(all.filter(i=>i.type==='body_logo'))},
         {name:'文字',color:'#b37b44',...StudioTimeline.lanes(all.filter(i=>i.type==='label'))},
         {name:'PNG',color:'#6b6caa',...StudioTimeline.lanes(all.filter(i=>i.type==='png'))}];
       const height=32+tracks.reduce((n,t)=>n+t.rows*36,0);
@@ -49,7 +50,7 @@
       const mode=pos.x-hit.x<7?'left':hit.x+hit.w-pos.x<7?'right':'move';
       this.drag={item:{...hit.item},mode,x:pos.x,px:this.px,
         photos:StudioDraft.metadata(this.hooks.photos()),overlays:JSON.parse(JSON.stringify(this.hooks.overlays())),
-        bodyTiming:this.hooks.body?.()?{start:this.hooks.body().start,end:this.hooks.body().end,auto_timing:this.hooks.body().auto_timing}:null};
+        bodyTiming:this.hooks.body?.()?Object.fromEntries(['start','end','auto_timing','logo_start','logo_end','logo_auto_timing'].map(k=>[k,this.hooks.body()[k]])):null};
       this.draw();
     }
     move(e){

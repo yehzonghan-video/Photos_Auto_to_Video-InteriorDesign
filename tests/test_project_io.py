@@ -45,7 +45,8 @@ def fixture(template='compare'):
     layer=dict(id='layer',type='png',source=a.id,start=1.5,duration=2.1,x=.6,y=.7,width=.3,
                scale=1.2,rotation=23,opacity=.7,layer=30,animation='left',exit_animation='fade',enter=.4,exit=.5)
     cover=new_cover();cover.update(title='老屋88萬',highlights=[dict(start=2,end=4,color='#ffd34e')])
-    cover['body'].update(x=.4,y=.245,font_size=112,auto_timing=False,start=.5,end=3.9)
+    cover['body'].update(x=.4,y=.245,font_size=112,auto_timing=False,start=.5,end=3.9,
+                         logo_auto_timing=False,logo_start=.9,logo_end=3.8)
     sound=BytesIO()
     with wave.open(sound,'wb') as wav:
         wav.setnchannels(2);wav.setsampwidth(2);wav.setframerate(44100)

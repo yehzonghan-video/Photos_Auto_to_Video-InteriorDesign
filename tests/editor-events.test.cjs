@@ -426,3 +426,32 @@ test('儲存專案一次同步未套用的標籤／PNG／封面／正文，等�
   assert.equal(vm.runInContext('photos[0].labels[0].text',env.context),'匯入的專案文字');
   assert.equal(vm.runInContext('photos[0].labels[0].start',env.context),.2);
 });
+
+test('LOGO時間軸拖移與左右裁切均本地，開關封面平移，重建與專案快照保留',async()=>{
+  const env=environment(),get=id=>env.elements.get(id);
+  const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
+  await env.receive({project});assert.equal(get('logoAutoTime').checked,true);assert.equal(get('logoStart').value,.3);
+  function drag(mode,delta){const hit=vm.runInContext('timeline.hits.find(h=>h.item.type==="body_logo")',env.context);
+    const tc=get('timelineCanvas'),px=vm.runInContext('timeline.px',env.context);
+    const x=(mode==='left'?hit.x+2:mode==='right'?hit.x+hit.w-2:hit.x+hit.w/2)*1080/tc.width,y=(hit.y+10)*1920/tc.height;
+    tc.dispatch('pointerdown',{clientX:x,clientY:y});
+    for(let i=1;i<=100;i++)tc.dispatch('pointermove',{clientX:x+delta*px*1080/tc.width*i/100,clientY:y});tc.dispatch('pointerup');}
+  drag('right',-2);drag('left',1);drag('move',1);
+  assert.ok(Math.abs(vm.runInContext('draft.cover.body.logo_start',env.context)-2.3)<1e-8);
+  assert.ok(Math.abs(vm.runInContext('draft.cover.body.logo_end',env.context)-7.3)<1e-8);
+  assert.equal(vm.runInContext('draft.cover.body.auto_timing',env.context),true);assert.equal(env.changes().length,0);
+  get('coverEnabled').checked=false;get('coverEnabled').onchange();
+  assert.ok(Math.abs(vm.runInContext('draft.cover.body.logo_start',env.context)-2)<1e-8);
+  get('coverEnabled').checked=true;get('coverEnabled').onchange();get('photos').children[2].onclick();get('photos').children[1].onclick();
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.ok(Math.abs(vm.runInContext('draft.cover.body.logo_start',rebuilt.context)-2.3)<1e-8);
+  const promise=rebuilt.elements.get('saveProject').onclick(),event=rebuilt.changes()[0].value;
+  assert.equal(event.action,'save_project');assert.equal(event.cover.body.logo_auto_timing,false);
+  const rows=rebuilt.rows();await rebuilt.receive({project:{...project,photos:rows,cover:event.cover},revision:3,response:{nonce:event.nonce,ok:true}});await promise;
+  rebuilt.elements.get('bodyLogo').checked=false;rebuilt.elements.get('bodyLogo').onchange();
+  assert.equal(vm.runInContext('timeline.hits.some(h=>h.item.type==="body_logo")',rebuilt.context),false);
+  rebuilt.elements.get('bodyLogo').checked=true;rebuilt.elements.get('bodyLogo').onchange();
+  rebuilt.elements.get('logoAutoTime').checked=true;rebuilt.elements.get('logoAutoTime').onchange();
+  assert.equal(rebuilt.elements.get('logoStart').value,.3);assert.equal(rebuilt.elements.get('logoEnd').value,8.3);
+});

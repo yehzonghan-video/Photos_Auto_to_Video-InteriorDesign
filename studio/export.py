@@ -10,7 +10,7 @@ import time
 from .models import MAX_TOTAL_SECONDS
 from .rendering import crop_photo, label_tile, render_frame
 
-BGM_API_VERSION = 8
+BGM_API_VERSION = 9
 # 相容性重載時沿用現有輸出鎖，避免同時開啟第二個FFmpeg程序。
 RENDER_LOCK = globals().get('RENDER_LOCK', threading.Lock())
 
@@ -47,7 +47,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     if not sequence:raise ValueError("請先新增一組前後配對再輸出。")
     from .cover import validate_cover, cover_frame, DURATION
     cover=validate_cover(cover,photos);prefix=DURATION if cover['enabled'] else 0
-    from .body import body_layer, title_visible
+    from .body import body_layer, title_visible, logo_visible
     decoration=body_layer(cover,include_title=False) if cover['body']['logo_enabled'] else None
     title_decoration=body_layer(cover,include_logo=False) if cover['body']['enabled'] else None
     duration = sum(p["duration"] if template=="compare" else p.duration for p in sequence)
@@ -114,17 +114,23 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                             frames=prepare_comparison(photo,photos);labels=photo["labels"];length=photo["duration"]
                         else:
                             base=crop_photo(photo);labels=photo.labels;length=photo.duration
-                            if decoration is not None:base.alpha_composite(decoration)
-                            title_base=base.copy() if title_decoration is not None else base
-                            if title_decoration is not None:title_base.alpha_composite(title_decoration)
+                            # 靜態照片預先合成四種前景組合，依時間選用，避免逐影格重複合成。
+                            variants={0:base}
+                            if decoration is not None:
+                                variants[1]=base.copy();variants[1].alpha_composite(decoration)
+                            if title_decoration is not None:
+                                variants[2]=base.copy();variants[2].alpha_composite(title_decoration)
+                            if decoration is not None and title_decoration is not None:
+                                variants[3]=variants[1].copy();variants[3].alpha_composite(title_decoration)
                         tiles = [label_tile(label) for label in labels]
                         count = round(length * fps)
                         for index in range(count):
                             if template=="compare":base=comparison_frame(photo,frames,index/fps)
-                            if template=="compare" and decoration is not None:base.alpha_composite(decoration)
+                            show_logo=decoration is not None and logo_visible(cover['body'],done/fps,round(prefix*fps)/fps,total/fps)
+                            if template=="compare" and show_logo:base.alpha_composite(decoration)
                             show_title=title_decoration is not None and title_visible(cover['body'],done/fps,round(prefix*fps)/fps,total/fps)
                             if template=="compare" and show_title:base.alpha_composite(title_decoration)
-                            current=title_base if template!='compare' and show_title else base
+                            current=variants[int(show_logo)+2*int(show_title)] if template!='compare' else base
                             frame = render_frame(current, labels, tiles, index / fps, prepared, done / fps)
                             write_frame(frame)
                     process.stdin.close()

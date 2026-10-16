@@ -17,7 +17,7 @@ from .overlays import MAX_ASSETS, MAX_ASSET_BYTES, load_asset
 from .music import MusicAsset
 from .photo_processing import WORKING_BYTES, WORKING_PIXELS, SESSION_BYTES, SESSION_PIXELS
 
-BGM_API_VERSION = 8
+BGM_API_VERSION = 9
 FORMAT = 'interior-video-project'
 VERSION = 1
 MAX_ARCHIVE_MB = 160

@@ -4,6 +4,27 @@ const T=require('../frontend/timeline-model.js');
 const {DraftState}=require('../frontend/draft-state.js');
 const cover=()=>({enabled:true,title:'翻新🏠88萬',photo_id:'p',color:'#ffffff',font_size:120,
   highlights:[{start:3,end:5,color:'#ff0000'}],body:B.newBody()});
+test('LOGO獨立軌避開封面，拖移裁切不改正文時間，片長縮短限制尾端',()=>{
+  const c=cover(),b=c.body,p=[{id:'p',duration:4,labels:[]},{id:'q',duration:4,labels:[]}];
+  assert.equal(B.logoItem(c,.3,8.3).start,.3);assert.equal(B.logoItem(c,.3,8.3).duration,8);
+  assert.equal(T.items(p,[],.3,B.item(c,.3,8.3),B.logoItem(c,.3,8.3)).filter(i=>i.type==='body_logo').length,1);
+  let item=B.logoItem(c,.3,8.3);T.edit(item,'right',-2,p,[],.3,b);
+  item=B.logoItem(c,.3,8.3);T.edit(item,'left',1,p,[],.3,b);
+  item=B.logoItem(c,.3,8.3);T.edit(item,'move',1,p,[],.3,b);
+  assert.ok(Math.abs(b.logo_start-2.3)<1e-8);assert.ok(Math.abs(b.logo_end-7.3)<1e-8);
+  assert.equal(b.auto_timing,true);assert.equal(b.start,0);assert.equal(b.end,null);
+  B.fit(b,.3,3.3);assert.equal(b.logo_end,3.3);assert.equal(B.logoVisible(b,.2,.3,3.3),false);
+  assert.equal(B.logoVisible(b,2.3,.3,3.3),true);assert.equal(B.logoVisible(b,3.3,.3,3.3),false);
+  b.logo_enabled=false;assert.equal(B.logoItem(c,.3,3.3),null);
+});
+test('舊正文升級只補LOGO時間，保留字級位置與正文時間；無效LOGO區間被拒絕',()=>{
+  const c=cover(),b={...c.body,font_size:120,x:.4,y:.7,start:1,end:3,auto_timing:false,version:4};
+  delete b.logo_auto_timing;delete b.logo_start;delete b.logo_end;
+  assert.equal(B.upgrade(b),true);assert.equal(B.upgrade(b),false);
+  assert.deepEqual([b.font_size,b.x,b.y,b.start,b.end],[120,.4,.7,1,3]);assert.equal(b.logo_auto_timing,true);
+  c.body=b;b.logo_auto_timing=false;b.logo_start=1;b.logo_end=1;assert.ok(B.validate(c));
+  b.logo_end=2;assert.equal(B.validate(c),null);
+});
 test('正文時間軸使用全片時間，整段與左右邊界可拖曳，排除封面且自動跟隨片長',()=>{
   const c=cover(),p=[{id:'p',duration:4,labels:[]},{id:'q',duration:4,labels:[]}];
   assert.equal(c.body.font_size,100);assert.equal(B.item(c,.3,8.3).duration,8);

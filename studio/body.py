@@ -7,14 +7,15 @@ from PIL import Image, ImageOps
 from .cover import validate_title, title_tile
 from .models import number
 
-BGM_API_VERSION = 8
+BGM_API_VERSION = 9
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'body-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'body-template.png'
 
 
 def new_body():
     return dict(enabled=True, logo_enabled=True, follow_cover=True, title='室內設計案例',
-                color='#ffffff', highlights=[], **LAYOUT['defaults'], auto_timing=True, start=0., end=None, version=4)
+                color='#ffffff', highlights=[], **LAYOUT['defaults'], auto_timing=True, start=0., end=None,
+                logo_auto_timing=True, logo_start=0., logo_end=None, version=5)
 
 
 def upgrade_body(body):
@@ -26,7 +27,9 @@ def upgrade_body(body):
             body['y']=LAYOUT['defaults']['y']
         defaults=new_body()
         for key in ('font_size','auto_timing','start','end','x','y'):body.setdefault(key,defaults[key])
-        body['version']=4
+    if body.get('version',0) < 5:
+        for key in ('logo_auto_timing','logo_start','logo_end'):body.setdefault(key,new_body()[key])
+        body['version']=5
     return body
 
 
@@ -52,6 +55,16 @@ def title_visible(body, time, prefix, length):
     return body['enabled'] and time+1e-8>=start and time<end-1e-8
 
 
+def logo_span(body, prefix, length):
+    return title_span(dict(auto_timing=body.get('logo_auto_timing',True),
+                           start=body.get('logo_start',0),end=body.get('logo_end')),prefix,length)
+
+
+def logo_visible(body, time, prefix, length):
+    start,end=logo_span(body,prefix,length)
+    return body['logo_enabled'] and time+1e-8>=start and time<end-1e-8
+
+
 def effective_title(cover):
     body = cover['body']
     source = cover if body['follow_cover'] else body
@@ -75,10 +88,18 @@ def validate_body(raw, cover):
     end=raw.get('end')
     if end is not None:end=number(end,0,120)
     if not auto and (end is None or end-start < 1/30-1e-8):raise ValueError('正文標題至少需顯示一影格，請確認開始與結束時間。')
+    logo_auto=raw.get('logo_auto_timing',True)
+    if type(logo_auto) is not bool:raise ValueError('正文LOGO時間設定格式不正確。')
+    if type(raw.get('logo_start',0)) not in (int,float) or (raw.get('logo_end') is not None and type(raw.get('logo_end')) not in (int,float)):
+        raise ValueError('正文LOGO時間必須為數值。')
+    logo_start=number(raw.get('logo_start',0),0,120)
+    logo_end=raw.get('logo_end')
+    if logo_end is not None:logo_end=number(logo_end,0,120)
+    if not logo_auto and (logo_end is None or logo_end-logo_start < 1/30-1e-8):raise ValueError('正文LOGO至少需顯示一影格，請確認開始與結束時間。')
     for key in ('x','y'):
         if type(raw.get(key,new_body()[key])) not in (int,float):raise ValueError('正文標題位置必須為數值。')
         body[key]=number(raw.get(key,new_body()[key]),0,1)
-    body.update(auto_timing=auto,start=start,end=end,version=4)
+    body.update(auto_timing=auto,start=start,end=end,logo_auto_timing=logo_auto,logo_start=logo_start,logo_end=logo_end,version=5)
     return body
 
 

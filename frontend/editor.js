@@ -7,7 +7,7 @@ let musicAsset=null,musicPreparing=false,playGeneration=0;
 const musicPlayer=new StudioMusic.MusicPlayer();
 let editing = true, playing = false, time = 0, startClock = 0, raf = 0, dragging = null;
 let showSafeArea=true,guideKind=null;
-let bodySelected=false;
+let bodySelected=false,logoSelected=false;
 let recording = false, recorder = null, recordedURL = null, renderGeneration = 0;
 const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
 const waiters=new Map();
@@ -56,7 +56,7 @@ function validProject() {
 function persistDraft() {
   if(!draft.session)return;
   draft.coverSeconds=StudioCover.duration(draft.cover);
-  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea,bodySelected})));storageFailed=false;}
+  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea,bodySelected,logoSelected})));storageFailed=false;}
   catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
 }
 window.addEventListener('pagehide',()=>{persistDraft();musicPlayer.stop();});
@@ -82,6 +82,8 @@ function markEdited(persist=true) {
   time=clamp(time,0,Math.max(0,total()-1/30));
   const active=pngEditor.item();
   if(editing&&bodySelected&&draft.cover?.body?.enabled){const range=StudioBody.span(draft.cover.body,coverDuration(),total());
+    if(time<range.start||time>=range.end){time=range.start;selectedPhoto=locate(time).photo?.id;}}
+  else if(editing&&logoSelected&&draft.cover?.body?.logo_enabled){const range=StudioBody.logoSpan(draft.cover.body,coverDuration(),total());
     if(time<range.start||time>=range.end){time=range.start;selectedPhoto=locate(time).photo?.id;}}
   else if(editing&&active&&!pngEditor.active(active)){time=active.start;selectedPhoto=locate(time).photo?.id;}
   else if(editing&&!active&&photo())time=clamp(time,photoOffset(photo().id),photoOffset(photo().id)+photo().duration-1/30);
@@ -130,6 +132,7 @@ window.addEventListener('message', async event => {
           pngEditor.selected=saved.selection?.selectedOverlay||null;time=saved.selection?.time||0;
           showSafeArea=saved.selection?.showSafeArea??true;$('showSafeArea').checked=showSafeArea;
           bodySelected=saved.selection?.bodySelected??false;
+          logoSelected=saved.selection?.logoSelected??false;
           if(draft.pending&&args.response?.nonce!==draft.pending.nonce){draft.pending=null;draft.dirty=true;}
         }
       }catch(error){sessionStorage.removeItem(storageKey);}
@@ -158,7 +161,7 @@ window.addEventListener('message', async event => {
     else if(localCoverTiming&&draft.dirty&&draft.cover?.enabled&&priorCoverSeconds!==coverDuration()){
       const delta=coverDuration()-priorCoverSeconds;
       for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start=Math.max(0,o.start+delta);
-      if(draft.cover.body?.auto_timing===false){draft.cover.body.start=Math.max(0,draft.cover.body.start+delta);draft.cover.body.end=Math.max(0,draft.cover.body.end+delta);}
+      for(const k of ['','logo_'])if(draft.cover.body?.[k+'auto_timing']===false){draft.cover.body[k+'start']=Math.max(0,draft.cover.body[k+'start']+delta);draft.cover.body[k+'end']=Math.max(0,draft.cover.body[k+'end']+delta);}
       time=Math.max(0,time+delta);draft.touch(photos);
     }
     StudioBody.fit(draft.cover?.body,coverDuration(),total());
@@ -260,7 +263,7 @@ function buildLabels() {
   const p=photo(); if(!p)return;
   if (!p.labels.length) $('labels').textContent = p.type==='cover'?'封面標題使用上方設定。':'尚無標籤，先新增一個裝修項目。';
   p.labels.forEach(l => $('labels').append(button(l.text, () => {
-    bodySelected=false;pngEditor.selected=null;selectedLabel=l.id;
+    bodySelected=false;logoSelected=false;pngEditor.selected=null;selectedLabel=l.id;
     if(isCompare()&&l.comparison_side){stopPlayback();editing=true;comparisonEditor.view='combined';
       time=photoOffset(p.id)+(l.comparison_side==='before'?0:p.before_time);}
     persistDraft();buildLabels(); fillForm(); draw();}, l.id===selectedLabel?'active':'')));
@@ -286,7 +289,7 @@ function fillForm() {
   fillMusic();
   coverEditor.refresh();
   bodyEditor.refresh();
-  if(bodySelected)$('bodyPanel').open=true;
+  if(bodySelected||logoSelected)$('bodyPanel').open=true;
   comparisonEditor.refresh();
   $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
   $('edit').textContent=isCompare()?'編輯對比片段':'編輯目前照片';
@@ -380,7 +383,7 @@ $('canvas').addEventListener('pointerdown',e=>{
   if(pngEditor.down(xy,hitLayer)){e.preventDefault();dragging={type:'png'};$('canvas').setPointerCapture(e.pointerId);draw();return;}
   if(hitLayer<0&&p.type!=='cover'&&bodyEditor.hit(xy,time)){
     const placed=bodyEditor.bounds().tile;dragging={type:'body',dx:xy.x-placed.x,dy:xy.y-placed.y};
-    e.preventDefault();bodySelected=true;pngEditor.selected=null;selectedLabel=null;$('canvas').setPointerCapture(e.pointerId);fillForm();draw();return;}
+    e.preventDefault();bodySelected=true;logoSelected=false;pngEditor.selected=null;selectedLabel=null;$('canvas').setPointerCapture(e.pointerId);fillForm();draw();return;}
   if(hitLayer<0&&comparisonEditor.dividerDown(xy)){e.preventDefault();dragging={type:'divider'};$('canvas').setPointerCapture(e.pointerId);return;}
   // 優先選取目前標籤的定位點，避免與其他文字碰撞時難以拖曳。
   const ordered=[...visible].reverse().sort((a,b)=>Number(b.id===selectedLabel)-Number(a.id===selectedLabel));
@@ -389,7 +392,7 @@ $('canvas').addEventListener('pointerdown',e=>{
     if(!l.comparison_side&&Math.hypot(xy.x-l.point_x*W,xy.y-l.point_y*H)<42) {dragging={type:'point',id:l.id,dx:0,dy:0};break;}
     if(xy.x>=b.x&&xy.x<=b.x+b.width&&xy.y>=b.y&&xy.y<=b.y+b.height) {dragging={type:'label',id:l.id,dx:xy.x-b.x,dy:xy.y-b.y};break;}
   }
-  if(dragging) {e.preventDefault();bodySelected=false;pngEditor.selected=null;selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
+  if(dragging) {e.preventDefault();bodySelected=false;logoSelected=false;pngEditor.selected=null;selectedLabel=dragging.id;$('canvas').setPointerCapture(e.pointerId);buildLabels();fillForm();draw();}
 });
 $('canvas').addEventListener('pointermove',e=>{
   if(!dragging||recording||preparing||serverBusy)return;const xy=coords(e);
@@ -477,7 +480,7 @@ for(const key of labelFields) {
 }
 $('addLabel').onclick=()=>{
   const p=photo();if(!p||p.type==='cover'||p.labels.length>=12)return;
-  pngEditor.selected=null;
+  pngEditor.selected=null;bodySelected=false;logoSelected=false;
   const l={id:crypto.randomUUID(),text:'裝修項目',x:.12,y:.28,point_x:.58,point_y:.52,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'left',start:0,enter:.6,end:p.duration};
   StudioLabelTiming.delay(l,p.duration);
   p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();markEdited();
@@ -555,8 +558,9 @@ function seekTime(value,edit=false){if(recording||preparing||serverBusy)return;s
   const p=locate(time).photo;if(p&&p.id!==selectedPhoto){selectedPhoto=p.id;selectedLabel=p.labels[0]?.id;buildPhotos();buildLabels();fillForm();}draw();persistDraft();}
 function selectMaterial(item){if(recording||preparing||serverBusy)return;stopPlayback();editing=true;
   bodySelected=item.type==='body_title';
+  logoSelected=item.type==='body_logo';
   if(item.type==='png'){pngEditor.selected=item.id;selectedLabel=null;seekTime(item.start,true);}
-  else if(item.type==='body_title'){pngEditor.selected=null;seekTime(item.start,true);selectedLabel=null;}
+  else if(['body_title','body_logo'].includes(item.type)){pngEditor.selected=null;seekTime(item.start,true);selectedLabel=null;}
   else {pngEditor.selected=null;selectedPhoto=item.source;selectedLabel=item.type==='label'?item.id:photo()?.labels[0]?.id;time=item.start;}
   buildPhotos();buildLabels();fillForm();draw();persistDraft();}
 const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photos,clips:()=>draft.comparisons,current:()=>photo()?.type==='cover'?null:photo(),
@@ -571,15 +575,15 @@ const pngEditor=new StudioPNG.PNGEditor({overlays:projectOverlays,assets:()=>ass
 const coverEditor=new StudioCover.CoverEditor({cover:()=>draft.cover,photos:()=>photos,images:()=>imageCache,slots:()=>[draft.overlays,draft.comparisonOverlays],
   viewing:()=>photo()?.type==='cover',
   locked:()=>recording||preparing||serverBusy,status,choose:()=>selectMaterial({type:'cover',id:'project-cover',source:'project-cover',start:0}),
-  change:()=>{stopPlayback();bodySelected=false;editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});
+  change:()=>{stopPlayback();bodySelected=false;logoSelected=false;editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});
 const bodyEditor=new StudioBody.BodyEditor({cover:()=>draft.cover,prefix:coverDuration,length:total,locked:()=>recording||preparing||serverBusy,status,
-  change:()=>{stopPlayback();bodySelected=true;editing=true;guideKind=null;
+  change:(type='body_title')=>{stopPlayback();bodySelected=type==='body_title';logoSelected=type==='body_logo';editing=true;guideKind=null;
     if(photo()?.type==='cover'&&bodySequence().length){selectedPhoto=bodySequence()[0].id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=coverDuration();buildPhotos();buildLabels();}
     markEdited();fillForm();draw();}});
 const timeline=new StudioTimelineUI.TimelineUI($('timelineCanvas'),{photos:bodySequence,offset:coverDuration,overlays:projectOverlays,time:()=>time,
-  body:()=>draft.cover?.body,title:()=>StudioBody.item(draft.cover,coverDuration(),total()),
+  body:()=>draft.cover?.body,title:()=>StudioBody.item(draft.cover,coverDuration(),total()),logo:()=>StudioBody.logoItem(draft.cover,coverDuration(),total()),
   locked:()=>recording||preparing||serverBusy,seek:seekTime,select:selectMaterial,
-  selected:item=>item.type==='body_title'?bodySelected:item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
+  selected:item=>item.type==='body_logo'?logoSelected:item.type==='body_title'?bodySelected:item.type==='png'?item.id===pngEditor.selected:item.type==='label'?item.id===selectedLabel:item.id===selectedPhoto,
   change:persist=>{stopPlayback();editing=true;markEdited(persist);buildPhotos();fillForm();draw();}});
 $('timelineZoom').oninput=()=>{timeline.zoom=Number($('timelineZoom').value);timeline.draw();};
 function stack(front){if(recording||preparing||serverBusy)return;const selected=pngEditor.item()||label();if(!selected)return;

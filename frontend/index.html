@@ -47,6 +47,9 @@
         <summary>影片正文 · 標題與LOGO</summary>
         <label class="check"><input id="bodyEnabled" type="checkbox">顯示正文標題</label>
         <label class="check"><input id="bodyLogo" type="checkbox">顯示正文LOGO</label>
+        <label class="check"><input id="logoAutoTime" type="checkbox">LOGO全程顯示（自動跟隨正文長度）</label>
+        <div class="row"><label class="field">LOGO開始（全片秒數）<input id="logoStart" type="number" min="0" max="120" step=".033333"></label><label class="field">LOGO結束（全片秒數）<input id="logoEnd" type="number" min="0" max="120" step=".033333"></label></div>
+        <p id="logoTiming" class="hint"></p>
         <label class="check"><input id="bodyFollow" type="checkbox">連動封面文字與顏色（預設）</label>
         <label class="check"><input id="bodyAutoTime" type="checkbox">正文全程顯示（自動跟隨影片長度）</label>
         <div class="row"><label class="field">正文開始（全片秒數）<input id="bodyStart" type="number" min="0" max="120" step=".033333"></label><label class="field">正文結束（全片秒數）<input id="bodyEnd" type="number" min="0" max="120" step=".033333"></label></div>
@@ -140,7 +143,7 @@
   <section class="timeline-section">
     <div class="strip-header"><span>多軌時間軸 <small>拖素材移動，拖左右邊界調長度；照片拖曳調順序</small></span><label>時間軸縮放 <input id="timelineZoom" type="range" min="1" max="4" step=".5" value="1"></label></div>
     <div class="timeline-scroll"><canvas id="timelineCanvas" width="900" height="180" tabindex="0" aria-label="多軌時間軸；照片、正文標題、文字、PNG，拖曳素材與左右邊界，點擊刻度跳轉"></canvas></div>
-    <p class="hint">紅線為播放指針。正文標題及PNG使用全片時間；照片標籤隨照片順序移動。正文預設跟隨影片長度，手動改時間後會限制於正文範圍。</p>
+    <p class="hint">紅線為播放指針。正文標題、LOGO及PNG使用全片時間；照片標籤隨照片順序移動。正文與LOGO可分別拖曳及裁切，預設跟隨正文長度，手動改時間後會限制於正文範圍。</p>
   </section>
 </section>
 <script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
