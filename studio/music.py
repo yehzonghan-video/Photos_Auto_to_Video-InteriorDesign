@@ -13,7 +13,7 @@ from .models import number, MAX_TOTAL_SECONDS
 # 與照片上傳的200 MB上限一致；解碼仍只保留影片可使用的前120秒。
 MAX_MUSIC_UPLOAD_MB = 200
 MAX_MUSIC_BYTES = MAX_MUSIC_UPLOAD_MB * 1024 * 1024
-BGM_API_VERSION = 7
+BGM_API_VERSION = 8
 FORMATS = {'mp3':'mp3', 'wav':'wav', 'm4a':'mov', 'ogg':'ogg', 'flac':'flac'}
 
 

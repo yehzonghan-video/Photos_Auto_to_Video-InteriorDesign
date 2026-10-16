@@ -6,7 +6,7 @@ from .comparison import validate_comparisons
 from .cover import validate_cover, DURATION
 from .music import validate_music
 
-BGM_API_VERSION = 7
+BGM_API_VERSION = 8
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -15,7 +15,7 @@ def apply_editor_event(photos, event, session, revision, request=None):
     if event.get("base_revision") != revision:
         raise ValueError("專案已更新，草稿已保留；請再次套用變更。")
     action = event.get("action")
-    if action not in ("apply", "export"):
+    if action not in ("apply", "export", "save_project"):
         raise ValueError("此編輯操作不受支援。")
     if action == "export" and (not request or event.get("request") != request):
         raise ValueError("輸出請求已過期，請重新按輸出影片。")
@@ -28,8 +28,8 @@ def apply_editor_event(photos, event, session, revision, request=None):
         raise ValueError("照片識別碼不正確。")
     # update_project 會先完整驗證所有欄位，成功後才一次套用。
     updated = update_project([known[ident] for ident in ids], rows)
-    if action == "export" and not updated:
-        raise ValueError("請保留至少一張照片再輸出。")
+    if action in ("export", "save_project") and not updated:
+        raise ValueError("請保留至少一張照片再輸出或儲存專案。")
     return updated
 
 
@@ -81,6 +81,10 @@ def consume_editor_event(state, event):
                                       state.get("overlay_assets",{}),sum(c["duration"] for c in clips)+prefix)
         if template=="compare" and event.get("action")=="export" and not clips:
             raise ValueError("請先新增一組前後配對再輸出。")
+        unchanged = ([p.metadata() for p in state['photos']] == [p.metadata() for p in staged]
+                     and all(value == state.get(key) for key,value in
+                             (('comparisons',clips),('cover',cover),('music',music),
+                              ('overlays',overlays),('comparison_overlays',comparison_overlays))))
         photos = apply_editor_event(state["photos"], event, state["editor_session"],
                                     state["revision"], request["id"] if request else None)
         state["photos"] = photos
@@ -95,11 +99,15 @@ def consume_editor_event(state, event):
                                    if batch["id"] not in acknowledgements]
         state["revision"] += 1
         state["project_payload"] = None
+        state['project_archive'] = None
         if not photos:
             state["editor_assets"] = {}
-        state["output"] = None
-        state["output_seconds"] = None
+        if event['action'] != 'save_project' or not unchanged:
+            state["output"] = None
+            state["output_seconds"] = None
         state["editor_response"] = dict(nonce=nonce, ok=True, seq=event.get("seq"))
+        if event['action'] == 'save_project':
+            state['project_save_job'] = True
         if event["action"] == "export":
             state["render_job"] = dict(width=request["width"], nonce=nonce)
             state["editor_busy"] = True

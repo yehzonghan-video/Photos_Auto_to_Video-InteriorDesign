@@ -2,7 +2,7 @@
 
 GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-video/Photos_Auto_to_Video-InteriorDesign)
 
-可操作的 Streamlit 網頁：共用密碼入口、照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層、BGM及 FFmpeg H.264 輸出。登入後，沒有 Gemini 金鑰仍能手動製片。時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，音樂參閱 [BGM操作](docs/BGM.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
+可操作的 Streamlit 網頁：共用密碼入口、照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層、BGM、專案ZIP儲存／匯入及 FFmpeg H.264 輸出。登入後，沒有 Gemini 金鑰仍能手動製片。專案保存參閱 [專案檔操作](docs/PROJECT_FILES.md)，時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，音樂參閱 [BGM操作](docs/BGM.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
 
 目前已完成第四階段「裝修前後對比」，並新增0.3秒品牌封面與細黑文字描邊。先選擇裝修介紹或前後對比模板：**上傳照片 → 設定封面 → 配對（對比模板）／選用 AI 標籤 → 加入 PNG → 編輯畫面與時間軸 → 預覽 → 輸出 MP4**。前後配對見 [第四階段說明](docs/COMPARISON.md)，封面操作與測試見 [片頭封面說明](docs/COVER.md)。
 
@@ -116,6 +116,12 @@ Cloud若顯示`payload() takes from 1 to 8 positional arguments but 10 were give
 5. 預覽或輸出前整批套用最新資料。封面占0～0.3秒，其後照片、標籤及PNG依全片時間播放；開關封面時PNG時間跟著平移0.3秒。影片內標籤與封面標題均使用1080p下2px黑描邊。
 
 封面選取時設定自動展開，回到一般照片時收合。片頭依1080×1440（3:4）原稿排版，標題與照片使用原始安全區座標；置中放入1080×1920（9:16）成片，上下各留240px黑邊，LOGO與照片不拉伸。詳見 [資料、排版及人工測試](docs/COVER.md)。
+
+## 儲存專案，日後繼續編輯
+
+在編輯器上方按「儲存專案檔」，系統會先同步尚未套用的編輯，再到編輯器下方按「下載專案檔 ZIP（含素材）」。ZIP包含照片、標籤、兩套模板時間軸、PNG、封面／正文、BGM與解析度；不包含MP4、API金鑰或密碼。
+
+日後從左側「開啟舊專案（ZIP）」選檔，按「匯入並開啟專案」就能繼續修改，不必重新上傳素材或分析AI。匯入會取代目前工作區，請先儲存需要保留的內容；匯入失敗則維持原工作區。單檔最多160 MB，保存的是按下儲存時的快照，後續有修改請再次儲存。完整內容、限制與測試見 [專案檔操作](docs/PROJECT_FILES.md)。
 
 ## 影片正文標題與LOGO
 

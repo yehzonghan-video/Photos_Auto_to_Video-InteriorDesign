@@ -399,3 +399,30 @@ test('照片標籤延後一次、新增預設1秒、正文100px／50%／24.5%，
   assert.deepEqual([event.cover.body.font_size,event.cover.body.x,event.cover.body.y],[100,.5,.245]);
   assert.equal(event.cover.font_size,120,'封面字級不變');
 });
+
+test('儲存專案一次同步未套用的標籤／PNG／封面／正文，等待時新編輯不被舊快照覆蓋',async()=>{
+  const env=environment(),get=id=>env.elements.get(id);
+  const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  const assets=[{id:'asset',name:'透明圖層',image:'png-image',width:220,height:110}];
+  const cover_assets={layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))};
+  await env.receive({project:{photos:env.rows(),cover,cover_assets,assets,overlays:[]}});get('photos').children[1].onclick();
+  get('addLabel').onclick();get('text').value='尚未套用的文字';get('text').oninput();
+  get('assetLibrary').children[0].onclick();get('png_rotation').value='33';get('png_rotation').oninput();
+  get('bodyX').value='44';get('bodyX').oninput();
+  assert.equal(env.changes().length,0);
+  const promise=get('saveProject').onclick();assert.equal(env.changes().length,1);assert.equal(get('saveProject').disabled,true);
+  const event=env.changes()[0].value;
+  assert.equal(event.action,'save_project');assert.equal(event.photos[0].labels[0].text,'尚未套用的文字');
+  assert.equal(event.overlays[0].rotation,33);assert.equal(event.cover.body.x,.44);
+  assert.equal(event.cover.title,'老屋88萬');
+  vm.runInContext("photos[0].labels[0].text='儲存後繼續編輯';markEdited()",env.context);
+  const rows=env.rows();rows.forEach((r,i)=>r.labels=event.photos[i].labels);
+  await env.receive({project:{photos:rows,cover:event.cover,assets,overlays:event.overlays},revision:2,response:{nonce:event.nonce,ok:true}});await promise;
+  assert.equal(vm.runInContext('photos[0].labels[0].text',env.context),'儲存後繼續編輯');assert.equal(env.changes().length,1);
+  assert.equal(get('saveProject').disabled,false);
+  // 匯入即切換新session：即使相同照片ID，仍由匯入內容取代舊本地草稿。
+  rows[0].labels[0]={...event.photos[0].labels[0],text:'匯入的專案文字',start:.2};
+  await env.receive({session:'new-import-session',project:{photos:rows,cover:event.cover,assets,overlays:event.overlays},revision:3});
+  assert.equal(vm.runInContext('photos[0].labels[0].text',env.context),'匯入的專案文字');
+  assert.equal(vm.runInContext('photos[0].labels[0].start',env.context),.2);
+});

@@ -17,11 +17,12 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 7:
+    if bootstrap.BGM_API_VERSION != 8:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
     from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
+    from studio.project_ui import prepare_download, import_panel, download_panel
 except (RuntimeError, ImportError, OSError) as exc:
     st.error(str(exc))
     st.caption('重新啟動會清除目前工作階段的照片與草稿；請先下載仍可取得的成果。')
@@ -48,7 +49,8 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 ai_queue=[], ai_delivered={}, ai_pending={}, overlays=[], png_epoch=0,
                 comparisons=[], comparison_overlays=[], template_mode="items", last_template="items",
                 photo_upload_epochs={"general":0,"before":0,"after":0},cover=new_cover(),
-                music=new_music(),music_asset=None,music_epoch=0)
+                music=new_music(),music_asset=None,music_epoch=0,
+                project_archive=None,project_import_epoch=0,video_width=1080)
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -101,6 +103,7 @@ def invalidate():
     st.session_state.output = None
     st.session_state.output_seconds = None
     st.session_state.project_payload = None
+    st.session_state.project_archive = None
     st.session_state.revision += 1
 
 
@@ -130,10 +133,13 @@ def add_uploaded(uploaded, role="general"):
     invalidate();st.session_state.notice=f"已加入 {len(new)} 張照片。 "+note
 
 
+prepare_download(st.session_state)
+
 with st.sidebar:
     st.markdown("### 案例影片工作室")
     st.button("登出", on_click=logout, use_container_width=True)
-    st.caption("登出會清除目前工作階段的照片與影片，請先下載成果。")
+    st.caption("登出會清除目前工作階段，請先下載影片或專案檔。")
+    import_panel(st.session_state)
     st.caption("第四階段 · 裝修前後對比")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
@@ -156,13 +162,14 @@ with st.sidebar:
             st.error(str(exc))
         st.caption("此處只確認目前執行環境，Cloud 部署後仍需重新驗證。")
     st.divider()
-    st.caption("照片僅存在目前工作階段記憶體，重新整理可能遺失。使用雲端時，照片會傳至 Streamlit 伺服器。")
+    st.caption("照片僅存在目前工作階段記憶體，請儲存專案檔以便下次編輯。使用雲端時，照片會傳至 Streamlit 伺服器。")
     if st.button("清空目前工作階段", use_container_width=True):
         st.session_state.photos = []
         st.session_state.editor_session = uuid.uuid4().hex
         st.session_state.editor_assets = {}
         st.session_state.editor_response = None
         st.session_state.pending_export = None
+        st.session_state.pop('project_save_job',None)
         st.session_state.editor_busy = False
         st.session_state.overlays = []
         st.session_state.comparisons=[];st.session_state.comparison_overlays=[]
@@ -224,7 +231,7 @@ with columns[-1]:
 
 photos = st.session_state.photos
 if not photos:
-    st.info("先加入案例照片，或載入測試示意圖，即可開始編輯。")
+    st.info("先加入案例照片、載入測試示意圖，或從左側匯入專案檔，即可開始編輯。")
     st.stop()
 
 with st.expander("替換單張照片", expanded=False):
@@ -313,12 +320,15 @@ except (RuntimeError, OSError) as exc:
     st.error(str(exc))
     st.stop()
 
+download_panel(st.session_state)
+st.caption('保留目前專案：按編輯器上方「儲存專案檔」→「下載專案檔 ZIP（含素材）」；日後從左側「開啟舊專案」匯入。')
+
 st.subheader("03　輸出案例影片")
 st.caption("按輸出後會先套用此頁的最新編輯，再以固定 30 FPS 生成 H.264 MP4。")
 options, summary = st.columns([2, 3])
 with options:
     size = st.selectbox("影片解析度", [1080, 720, 360],
-                        format_func=lambda w: f"{w} × {w*16//9}" + (" · Full HD" if w == 1080 else " · 較快輸出"))
+                        format_func=lambda w: f"{w} × {w*16//9}" + (" · Full HD" if w == 1080 else " · 較快輸出"),key='video_width')
     render_clicked = st.button("輸出 H.264 MP4", type="primary", use_container_width=True,
                                disabled=st.session_state.editor_busy or st.session_state.pending_export is not None)
 with summary:

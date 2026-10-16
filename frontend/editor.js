@@ -67,6 +67,7 @@ function syncStatus() {
   else status(draft.dirty?'有未套用變更；切換照片會保留，輸出前會自動套用。':'已套用變更，預覽已與輸出設定對齊。');
   if(storageFailed){$('status').textContent+=' 此瀏覽器無法暫存草稿，離開前請先套用。';$('status').classList.add('error');}
   $('applyChanges').disabled=!!draft.pending||recording||preparing||serverBusy;
+  $('saveProject').disabled=!!draft.pending||recording||preparing||serverBusy;
 }
 function markEdited(persist=true) {
   const priorPhoto=selectedPhoto;
@@ -486,6 +487,9 @@ $('deletePhoto').onclick=()=>{if(isCompare()){const i=draft.comparisons.findInde
   else{draft.deleted.push(selectedPhoto);photos=photos.filter(p=>p.id!==selectedPhoto);}
   selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;markEdited();buildPhotos();buildLabels();fillForm();draw();comparisonEditor.library();};
 $('applyChanges').onclick=()=>synchronize().catch(error=>status(error.message,true));
+$('saveProject').onclick=()=>synchronize('save_project')
+  .then(()=>status('專案檔已準備完成，請在編輯器下方按「下載專案檔 ZIP（含素材）」。'))
+  .catch(error=>status(error.message,true));
 function movePhoto(delta) {
   const rows=bodySequence(),index=rows.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(index<0||next<0||next>=rows.length)return;
   [rows[index],rows[next]]=[rows[next],rows[index]];buildPhotos();markEdited();
@@ -507,7 +511,7 @@ function clearBrowserResult() {
 function lockEditor(locked) {
   if(locked&&dragging){dragging=null;persistDraft();}
   for(const element of document.querySelectorAll('button,input,select,textarea'))element.disabled=locked;
-  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!!draft.pending;}
+  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!!draft.pending;$('saveProject').disabled=!!draft.pending;}
 }
 $('browserExport').onclick=async()=>{
   if(!bodySequence().length){status('請先加入照片或新增一組前後配對。',true);return;}

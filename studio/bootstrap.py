@@ -6,7 +6,7 @@ import threading
 
 LOGGER = logging.getLogger('interior_studio.runtime')
 _LOAD_LOCK = globals().get('_LOAD_LOCK',threading.RLock())
-BGM_API_VERSION = 7
+BGM_API_VERSION = 8
 
 
 def _compatible(module, function, music_arguments=False):
@@ -25,7 +25,8 @@ def video_modules():
     with _LOAD_LOCK:
         # 共用標題與音樂先載入，消費端再重新匯入新函式，避免Cloud混用舊介面。
         specs = [('studio.models', 'new_label', False), ('studio.cover', 'new_cover', False), ('studio.body', 'effective_title', False),
-                 ('studio.music', 'load_music', False), ('studio.component', 'payload', True),
+                 ('studio.music', 'load_music', False), ('studio.project_io', 'build_archive', False),
+                 ('studio.project_ui', 'import_panel', False), ('studio.component', 'payload', True),
                  ('studio.export', 'export_video', True), ('studio.sync', 'consume_editor_event', False)]
         modules = [importlib.import_module(name) for name, _, _ in specs]
         mismatches = [name for module, (name, function, music_args) in zip(modules, specs)
