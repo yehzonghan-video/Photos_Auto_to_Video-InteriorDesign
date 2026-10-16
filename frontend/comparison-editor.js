@@ -15,7 +15,8 @@
       $('addComparisonTitle').onclick=()=>{const c=hooks.current();if(!c||c.labels.length>=12||hooks.locked())return;
         const l={...clone(c.labels[0]||{font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,layer:10}),
           id:crypto.randomUUID(),text:c.name,x:.06,y:.2,point_x:.5,point_y:.5,line:false,animation:'fade',enter:.3,start:0,end:c.duration};
-        delete l.comparison_side;delete l.auto_timing;delete l.comparison_title_version;delete l.exit;c.labels.push(l);hooks.change();};
+        delete l.comparison_side;delete l.auto_timing;delete l.comparison_title_version;delete l.exit;delete l.label_timing_version;
+        StudioLabelTiming.delay(l,c.duration);c.labels.push(l);hooks.change();};
     }
     options(select,role,value){const previous=value??select.value;select.replaceChildren();
       const empty=document.createElement('option');empty.value='';empty.textContent='請選擇照片';select.append(empty);

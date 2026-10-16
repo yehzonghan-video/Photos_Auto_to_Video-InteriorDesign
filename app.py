@@ -17,7 +17,7 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 4:
+    if bootstrap.BGM_API_VERSION != 5:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
@@ -62,11 +62,11 @@ if st.session_state.get('cover_version')!=2:
     st.session_state.editor_assets={};st.session_state.output=None
 if st.session_state.get('music_version')!=1:
     st.session_state.music_version=1;st.session_state.project_payload=None
-if st.session_state.get('body_title_version')!=3:
+if st.session_state.get('body_title_version')!=4:
     from studio.body import new_body, upgrade_body
     st.session_state.cover.setdefault('body',new_body())
     upgrade_body(st.session_state.cover['body'])
-    st.session_state.body_title_version=3;st.session_state.project_payload=None
+    st.session_state.body_title_version=4;st.session_state.project_payload=None
 if "overlay_assets" not in st.session_state:
     st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
 if st.session_state.get("photo_preview_version") != 1:
@@ -84,6 +84,16 @@ if st.session_state.get("editor_protocol") != 4:
 
 # 新的元件值已在 rerun 前寫入 widget Session State，在回傳元件參數前完成交易。
 consume_editor_event(st.session_state, st.session_state.get("studio_editor"))
+
+# 舊照片與前端草稿各自只升級一次；手動調整過新時間後不再自動延後。
+from studio.models import delay_label
+timing_changed=False
+for item in [*st.session_state.photos,*st.session_state.comparisons]:
+    labels,duration=(item['labels'],item['duration']) if isinstance(item,dict) else (item.labels,item.duration)
+    for label in labels:
+        if delay_label(label,duration):timing_changed=True
+if timing_changed:
+    st.session_state.project_payload=None;st.session_state.output=None;st.session_state.revision+=1
 
 
 def invalidate():

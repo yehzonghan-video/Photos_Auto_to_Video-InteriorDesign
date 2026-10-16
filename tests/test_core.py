@@ -21,11 +21,12 @@ class CoreTests(unittest.TestCase):
         label = new_label(4)
         self.assertIsNone(pose(label, -.1))
         self.assertIsNone(pose(label, 4))
-        self.assertEqual(pose(label, 0)["alpha"], 0)
-        self.assertEqual(pose(label, 1)["x"], 0)
-        self.assertAlmostEqual(pose(label, .3)["x"], -.0275)
+        self.assertIsNone(pose(label, 0))
+        self.assertEqual(pose(label, 1)["alpha"], 0)
+        self.assertEqual(pose(label, 2)["x"], 0)
+        self.assertAlmostEqual(pose(label, 1.3)["x"], -.0275)
         label["animation"] = "none"
-        self.assertEqual(pose(label, 0)["alpha"], 1)
+        self.assertEqual(pose(label, 1)["alpha"], 1)
 
     def test_crop_selects_correct_original_region(self):
         item = photo()
@@ -81,7 +82,7 @@ class CoreTests(unittest.TestCase):
         tile = label_tile(label)
         self.assertGreater(tile.width, 100)
         self.assertEqual(render_frame(base, [label], [tile], 4).tobytes(), base.convert("RGB").tobytes())
-        self.assertNotEqual(render_frame(base, [label], [tile], 1).tobytes(), base.convert("RGB").tobytes())
+        self.assertNotEqual(render_frame(base, [label], [tile], 1.8).tobytes(), base.convert("RGB").tobytes())
 
     def test_corrupt_upload(self):
         with self.assertRaises(ValueError): load_photo("fake.png", b"bad data")

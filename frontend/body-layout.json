@@ -1,5 +1,6 @@
 {
   "width": 1080,
   "height": 1920,
-  "title": {"x": 142, "y": 350, "width": 796, "height": 360}
+  "title": {"x": 142, "y": 290.4, "width": 796, "height": 360},
+  "defaults": {"font_size": 100, "x": 0.5, "y": 0.245}
 }

@@ -6,6 +6,7 @@ import uuid
 
 from .photo_processing import MAX_INPUT_BYTES, read_upload
 
+BGM_API_VERSION = 5
 MAX_PHOTOS = 12
 MAX_LABELS = 12
 MAX_TOTAL_SECONDS = 120
@@ -27,11 +28,30 @@ def color(value):
     return value
 
 
+def delay_label(label, duration):
+    """舊標籤只延後一次；結束時間不變，短片段至少保留一影格。"""
+    if label.get('label_timing_version') == 1 or label.get('comparison_side') in ('before', 'after'):
+        return False
+    start, end = label.get('start', 0), label.get('end', duration)
+    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (start, end, duration)) or not 0 <= start < end <= duration:
+        return False  # 保留無效草稿，交由原有輸入驗證提示使用者。
+    end = max(end, min(duration, 1/30))
+    label.update(start=min(start+1, max(0, end-1/30)), end=end, label_timing_version=1)
+    label['enter'] = min(label.get('enter', .6), end-label['start'])
+    if 'exit' in label:label['exit'] = min(label['exit'], end-label['start'])
+    if end-label['start'] <= 1/30+1e-8:
+        label['enter'] = 0  # 只剩一影格時直接顯示，避免淡入起點完全透明。
+        if 'exit' in label:label['exit'] = 0
+    return True
+
+
 def new_label(duration=4):
-    return dict(id=uuid.uuid4().hex, text="裝修項目", x=.12, y=.28,
+    label = dict(id=uuid.uuid4().hex, text="裝修項目", x=.12, y=.28,
                 point_x=.58, point_y=.52, font_size=46, color="#ffffff",
                 background="#222822", opacity=.88, radius=18, line=True,
                 animation="left", start=0., enter=.6, end=float(duration))
+    delay_label(label, float(duration))
+    return label
 
 
 def validate_label(raw, duration):
@@ -72,6 +92,7 @@ def validate_label(raw, duration):
         result["exit"] = number(raw.get("exit",0),0,min(3,end-start))
     if isinstance(raw.get("origin_label_id"),str):
         result["origin_label_id"]=raw["origin_label_id"][:64]
+    if raw.get('label_timing_version') == 1:result['label_timing_version'] = 1
     return result
 
 

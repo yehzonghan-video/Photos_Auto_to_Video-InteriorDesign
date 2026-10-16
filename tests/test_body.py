@@ -18,7 +18,7 @@ from tests.test_cover import photo
 
 class BodyTests(unittest.TestCase):
     def test_position_validation_cache_and_cover_unchanged(self):
-        p=photo();c=validate_cover(new_cover(),[p]);self.assertEqual(title_box(c['body'])['y'],350)
+        p=photo();c=validate_cover(new_cover(),[p]);self.assertEqual(title_box(c['body'])['y'],290)
         opening=cover_frame(c,[p]);cache={};first=payload([p],cache,cover=c)
         c['body'].update(x=.4,y=.65);c=validate_cover(c,[p]);second=payload([p],cache,cover=c)
         self.assertIs(first['body_assets']['title'],second['body_assets']['title'],'移動不重新光柵文字')
@@ -41,7 +41,7 @@ class BodyTests(unittest.TestCase):
                 self.assertLess(ImageStat.Stat(delta).mean[0],4)
 
     def test_timing_validation_bounds_and_default_size_upgrade(self):
-        p=photo();c=new_cover();self.assertEqual(c['body']['font_size'],120)
+        p=photo();c=new_cover();self.assertEqual(c['body']['font_size'],100)
         b=c['body'];self.assertEqual(title_span(b,.3,2.3),(.3,2.3))
         b.update(auto_timing=False,start=.6,end=1.5,font_size=240)
         c=validate_cover(c,[p]);self.assertEqual(c['body']['font_size'],240)
@@ -49,8 +49,13 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(title_span(c['body'],.3,1),(.6,1))
         for change in ({'auto_timing':'true'},{'start':float('nan')},{'start':'1'},{'start':True},{'end':None},{'start':2,'end':1},{'start':0,'end':.01}):
             with self.subTest(change=change),self.assertRaises(ValueError):validate_cover({**c,'body':{**c['body'],**change}},[p])
-        old={'font_size':88};upgrade_body(old);self.assertEqual(old['font_size'],120);old['font_size']=140;upgrade_body(old);self.assertEqual(old['font_size'],140)
+        old={'font_size':88};upgrade_body(old);self.assertEqual(old['font_size'],100);old['font_size']=140;upgrade_body(old);self.assertEqual(old['font_size'],140)
         manual={'font_size':180};upgrade_body(manual);self.assertEqual(manual['font_size'],180)
+        legacy={'font_size':120,'x':.5,'y':530/1920,'version':3}
+        upgrade_body(legacy);self.assertEqual((legacy['font_size'],legacy['x'],legacy['y']),(100,.5,.245))
+        legacy.update(font_size=120,y=.7);upgrade_body(legacy)
+        self.assertEqual((legacy['font_size'],legacy['y']),(120,.7),'新版本後人工調整不再被重設')
+        self.assertEqual((new_cover()['body']['x'],new_cover()['body']['y']),(.5,.245))
 
     def test_custom_time_survives_batch_sync_without_changing_photo_duration(self):
         p=photo();state=dict(photos=[p],editor_session='s',revision=1,cover=validate_cover(new_cover(),[p]))

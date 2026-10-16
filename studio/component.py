@@ -10,7 +10,7 @@ from .cover import validate_cover, template_bytes, title_tile, LAYOUT
 from .music import validate_music
 from .body import LAYOUT as BODY_LAYOUT, effective_title, template_bytes as body_template_bytes
 
-BGM_API_VERSION = 4
+BGM_API_VERSION = 5
 
 editor = components.declare_component("interior_studio_editor", path=str(Path(__file__).resolve().parents[1] / "frontend"))
 

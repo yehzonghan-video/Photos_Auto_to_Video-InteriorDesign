@@ -31,7 +31,7 @@ def samples():
         photo = load_photo(f"測試示意_{i+1}.png", buffer.getvalue())
         label = new_label(4)
         label.update(text=["木紋地板", "展示收納", "空間採光", "壁面色彩", "案例細節"][i],
-                     animation="left", start=.3, enter=.7, y=.25 + i * .05)
+                     animation="left", start=1.3, enter=.7, y=.25 + i * .05)
         photo.labels.append(label)
         photos.append(photo)
     return photos

@@ -10,7 +10,7 @@ import time
 from .models import MAX_TOTAL_SECONDS
 from .rendering import crop_photo, label_tile, render_frame
 
-BGM_API_VERSION = 4
+BGM_API_VERSION = 5
 # 相容性重載時沿用現有輸出鎖，避免同時開啟第二個FFmpeg程序。
 RENDER_LOCK = globals().get('RENDER_LOCK', threading.Lock())
 

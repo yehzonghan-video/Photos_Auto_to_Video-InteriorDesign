@@ -5,10 +5,11 @@
   const $=id=>document.getElementById(id),clone=v=>JSON.parse(JSON.stringify(v));
   function configure(value){if(value)layout=value;}
   const MIN=1/30,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  function newBody(){return {enabled:true,logo_enabled:true,follow_cover:true,title:'室內設計案例',color:'#ffffff',highlights:[],font_size:120,auto_timing:true,start:0,end:null,
-    x:.5,y:(layout.title.y+layout.title.height/2)/1920,version:3};}
-  function upgrade(b){if(!b||b.version===3)return false;if((b.version??0)<2&&b.font_size===88)b.font_size=120;
-    b.auto_timing??=true;b.start??=0;b.end??=null;b.x??=newBody().x;b.y??=newBody().y;b.version=3;return true;}
+  function newBody(){return {enabled:true,logo_enabled:true,follow_cover:true,title:'室內設計案例',color:'#ffffff',highlights:[],...layout.defaults,auto_timing:true,start:0,end:null,version:4};}
+  function upgrade(b){if(!b||(b.version??0)>=4)return false;
+    if(b.font_size===120||((b.version??0)<2&&b.font_size===88))b.font_size=layout.defaults.font_size;
+    if((b.x??.5)===.5&&[(350+180)/1920,(410+180)/1920].includes(b.y))b.y=layout.defaults.y;
+    b.font_size??=newBody().font_size;b.auto_timing??=true;b.start??=0;b.end??=null;b.x??=newBody().x;b.y??=newBody().y;b.version=4;return true;}
   function box(b){const size=layout.title;return {x:Math.round((b.x??.5)*1080-size.width/2),
     y:Math.round((b.y??newBody().y)*1920-size.height/2),width:size.width,height:size.height};}
   function alphaBounds(image){const canvas=image.getContext?image:document.createElement('canvas');

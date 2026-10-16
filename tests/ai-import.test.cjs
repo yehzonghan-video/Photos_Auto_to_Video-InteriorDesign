@@ -9,6 +9,7 @@ test('橫圖完整留黑換算物件與文字座標',()=>{
   const l=AI.convert(item,photo(),{naturalWidth:2000,naturalHeight:1000},layout,()=> 'id');
   assert.equal(l.point_x,.5);assert.equal(l.point_y,(690+405)/1920);
   assert.equal(l.x,.1);assert.equal(l.y,(690+324)/1920);
+  assert.equal(l.start,1);assert.equal(l.end,4);assert.equal(l.label_timing_version,1);
 });
 test('自動套用在剩餘容量內加入，保留全部人工標籤，超出數量明確顯示',()=>{
   const draft=new DraftState();draft.rows=[photo()];

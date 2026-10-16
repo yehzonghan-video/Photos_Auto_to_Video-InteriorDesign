@@ -7,24 +7,26 @@ from PIL import Image, ImageOps
 from .cover import validate_title, title_tile
 from .models import number
 
-BGM_API_VERSION = 4
+BGM_API_VERSION = 5
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'body-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'body-template.png'
 
 
 def new_body():
     return dict(enabled=True, logo_enabled=True, follow_cover=True, title='室內設計案例',
-                color='#ffffff', highlights=[], font_size=120, auto_timing=True, start=0., end=None,
-                x=.5, y=(LAYOUT['title']['y']+LAYOUT['title']['height']/2)/1920, version=3)
+                color='#ffffff', highlights=[], **LAYOUT['defaults'], auto_timing=True, start=0., end=None, version=4)
 
 
 def upgrade_body(body):
-    """舊預設字級放大一次；保留已手動選擇的其他字級／樣式。"""
-    if body.get('version') != 3:
-        if body.get('version',0)<2 and body.get('font_size') == 88:body['font_size']=120
+    """更新舊預設一次；保留人工設定的其他字級、位置與時間。"""
+    if body.get('version', 0) < 4:
+        if body.get('font_size') == 120 or (body.get('version',0)<2 and body.get('font_size') == 88):
+            body['font_size']=LAYOUT['defaults']['font_size']
+        if body.get('x',.5) == .5 and body.get('y') in ((350+180)/1920, (410+180)/1920):
+            body['y']=LAYOUT['defaults']['y']
         defaults=new_body()
-        for key in ('auto_timing','start','end','x','y'):body.setdefault(key,defaults[key])
-        body['version']=3
+        for key in ('font_size','auto_timing','start','end','x','y'):body.setdefault(key,defaults[key])
+        body['version']=4
     return body
 
 
@@ -60,6 +62,7 @@ def validate_body(raw, cover):
     raw = new_body() if raw is None else raw
     if not isinstance(raw, dict) or any(type(raw.get(key)) is not bool for key in ('enabled', 'logo_enabled', 'follow_cover')):
         raise ValueError('正文標題與LOGO設定格式不正確。')
+    raw=upgrade_body(dict(raw))
     body = {key: raw[key] for key in ('enabled', 'logo_enabled', 'follow_cover')}
     body.update(validate_title(raw, body['enabled'] and not body['follow_cover'], '正文',240))
     if body['enabled'] and body['follow_cover']:
@@ -75,7 +78,7 @@ def validate_body(raw, cover):
     for key in ('x','y'):
         if type(raw.get(key,new_body()[key])) not in (int,float):raise ValueError('正文標題位置必須為數值。')
         body[key]=number(raw.get(key,new_body()[key]),0,1)
-    body.update(auto_timing=auto,start=start,end=end,version=3)
+    body.update(auto_timing=auto,start=start,end=end,version=4)
     return body
 
 

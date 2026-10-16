@@ -1,5 +1,6 @@
 // AI 座標以完整原圖為基準，使用現有照片構圖模組換算；不接觸後端或 API。
 (function(root) {
+  const timing=typeof module!=='undefined'?require('./label-timing.js'):root.StudioLabelTiming;
   const clamp=v=>Math.max(0,Math.min(1,v));
   function convert(item, photo, image, layout, uuid) {
     const W=1080,H=1920,iw=image.naturalWidth,ih=image.naturalHeight;
@@ -12,10 +13,11 @@
     if(ax<left||ax>right||ay<top||ay>bottom){ax=(left+right)/2;ay=(top+bottom)/2;review=true;}
     const position=(x,y)=>({x:clamp((b.dx+(x-b.sx)*b.dw/b.sw)/W),y:clamp((b.dy+(y-b.sy)*b.dh/b.sh)/H)});
     const anchor=position(ax,ay),text=position(item.suggested_label_x*iw,item.suggested_label_y*ih);
-    return {id:uuid(),text:item.label,description:item.description,category:item.category,
+    const label={id:uuid(),text:item.label,description:item.description,category:item.category,
       confidence_level:item.confidence_level,needs_review:review,source:'gemini',ai_item_id:item.ai_item_id,
       x:text.x,y:text.y,point_x:anchor.x,point_y:anchor.y,font_size:46,color:'#ffffff',background:'#222822',
       opacity:.88,radius:18,line:true,animation:'left',start:0,enter:Math.min(.6,photo.duration),end:photo.duration};
+    timing.delay(label,photo.duration);return label;
   }
   function importBatches(draft,batches,images,layout,uuid) {
     let added=0;const messages=[];

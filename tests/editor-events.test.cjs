@@ -14,6 +14,7 @@ const StudioOverlay=require('../frontend/overlay-model.js');
 const StudioComparison=require('../frontend/comparison-model.js');
 const StudioSafeArea=require('../frontend/safe-area.js');
 const StudioMusic=require('../frontend/music.js');
+const StudioLabelTiming=require('../frontend/label-timing.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
@@ -33,7 +34,7 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,crypto:webcrypto,console,
+    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
@@ -69,7 +70,7 @@ test('正文時間軸拖移與兩端裁切不送Python，字級可到240，切�
   const env=environment(),get=id=>env.context.document.getElementById(id);
   const cover={enabled:true,title:'老屋88萬',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
   const project={photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json'))}};
-  await env.receive({project});assert.equal(get('bodySize').value,120);assert.equal(get('bodyStart').value,.3);
+  await env.receive({project});assert.equal(get('bodySize').value,100);assert.equal(get('bodyStart').value,.3);
   get('bodyEnd').value='6';get('bodyEnd').oninput();
   function drag(mode,delta){const hit=vm.runInContext('timeline.hits.find(h=>h.item.type==="body_title")',env.context);
     const tc=get('timelineCanvas'),px=vm.runInContext('timeline.px',env.context);
@@ -376,4 +377,22 @@ test('對比刪除片段不刪來源照片；加入施工後標籤保留原標�
   await env.receive({project:{photos:rows,template_id:'compare'}});env.elements.get('autoPair').onclick();env.elements.get('copyAfterLabels').onclick();env.elements.get('copyAfterLabels').onclick();
   assert.equal(vm.runInContext('photo().labels.length',env.context),3);assert.equal(vm.runInContext('photos[1].labels.length',env.context),1);
   env.elements.get('deletePhoto').onclick();assert.equal(vm.runInContext('draft.comparisons.length',env.context),0);assert.equal(vm.runInContext('photos.length',env.context),2);assert.equal(env.changes().length,0);
+});
+
+test('照片標籤延後一次、新增預設1秒、正文100px／50%／24.5%，未同步草稿重建後不重複延後',async()=>{
+  const env=environment(),rows=env.rows(),get=id=>env.elements.get(id);
+  rows[0].labels=[{id:'legacy',text:'既有裝修',x:.2,y:.4,point_x:.5,point_y:.5,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'fade',start:.3,end:4,enter:.6}];
+  const cover={enabled:false,title:'封面不變',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[],
+    body:{...require('../frontend/body-editor.js').newBody(),font_size:120,x:.5,y:530/1920,version:3}};
+  const project={photos:rows,cover};await env.receive({project});
+  assert.equal(vm.runInContext('photos[0].labels[0].start',env.context),1.3);
+  assert.equal(get('bodySize').value,100);assert.equal(get('bodyX').value,50);assert.equal(get('bodyY').value,24.5);
+  get('start').value='.5';get('start').oninput();get('addLabel').onclick();
+  assert.equal(vm.runInContext('photos[0].labels[1].start',env.context),1);
+  await env.receive({project,revision:2});const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
+  assert.equal(rebuilt.changes().length,0);assert.equal(vm.runInContext('photos[0].labels[0].start',rebuilt.context),.5);
+  await rebuilt.receive({project,revision:2,export_request:'delay-test'});
+  const event=rebuilt.changes()[0].value;assert.deepEqual(event.photos[0].labels.map(l=>l.start),[.5,1]);
+  assert.deepEqual([event.cover.body.font_size,event.cover.body.x,event.cover.body.y],[100,.5,.245]);
+  assert.equal(event.cover.font_size,120,'封面字級不變');
 });

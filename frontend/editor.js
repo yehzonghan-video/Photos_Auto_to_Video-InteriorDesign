@@ -148,6 +148,10 @@ window.addEventListener('message', async event => {
     if(musicAsset?.id!==newMusicAsset?.id){stopPlayback();clearBrowserResult();$('musicPanel').open=!!newMusicAsset;}
     musicAsset=newMusicAsset;musicPlayer.setAsset(musicAsset);
     photos=draft.rows;
+    let delayed=false;
+    for(const p of [...photos,...draft.comparisons])for(const l of p.labels||[])
+      if(StudioLabelTiming.delay(l,p.duration))delayed=true;
+    if(delayed)draft.touch(photos);
     draft.template=args.project.template_id||'items';
     if(legacyCover&&draft.cover?.enabled){for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start+=coverDuration();time+=coverDuration();draft.touch(photos);}
     else if(localCoverTiming&&draft.dirty&&draft.cover?.enabled&&priorCoverSeconds!==coverDuration()){
@@ -474,6 +478,7 @@ $('addLabel').onclick=()=>{
   const p=photo();if(!p||p.type==='cover'||p.labels.length>=12)return;
   pngEditor.selected=null;
   const l={id:crypto.randomUUID(),text:'裝修項目',x:.12,y:.28,point_x:.58,point_y:.52,font_size:46,color:'#ffffff',background:'#222822',opacity:.88,radius:18,line:true,animation:'left',start:0,enter:.6,end:p.duration};
+  StudioLabelTiming.delay(l,p.duration);
   p.labels.push(l);selectedLabel=l.id;editing=true;stopPlayback();buildLabels();fillForm();draw();markEdited();
 };
 $('deleteLabel').onclick=()=>{const p=photo();p.labels=p.labels.filter(l=>l.id!==selectedLabel);tileCache.delete(selectedLabel);selectedLabel=p.labels[0]?.id;buildLabels();fillForm();draw();markEdited();};
