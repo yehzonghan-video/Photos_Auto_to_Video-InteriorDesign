@@ -9,7 +9,7 @@ from .rendering import font_path
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'cover-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'opening-template.png'
 DURATION = LAYOUT['duration']
-BGM_API_VERSION = 5
+BGM_API_VERSION = 6
 
 
 def new_cover():
@@ -96,10 +96,10 @@ def template_bytes():
 
 def cover_frame(cover,photos):
     frame=Image.new('RGBA',(1080,1920),'black')
-    # 原模板為3:4；置頂等比例顯示，LOGO不拉伸，區域依9:16安全區排版。
+    # 片頭所有區域共用3:4原稿座標；置頂等比例顯示，9:16影片下方補黑。
     with Image.open(TEMPLATE) as image:
-        template=ImageOps.contain(image.convert('RGBA'),(1080,1920))
-        frame.alpha_composite(template,((1080-template.width)//2,0))
+        template=ImageOps.contain(image.convert('RGBA'),(LAYOUT['width'],LAYOUT['height']))
+        frame.alpha_composite(template,((LAYOUT['width']-template.width)//2,0))
     photo=next((p for p in photos if p.id==cover['photo_id']),None)
     if photo is None:raise ValueError('請選擇封面照片。')
     box=LAYOUT['photo']

@@ -167,6 +167,8 @@ test('封面照片、反白局部字色、0.3秒時間軸與開關偏移全部�
   get('seek').value='0';get('seek').oninput();
   assert.equal(get('safeAreaGuide').hidden,false,'封面動畫預覽顯示安全框');
   assert.ok(get('safeAreaGuide').innerHTML.includes('x="246"'));
+  assert.ok(get('safeAreaGuide').innerHTML.includes('y="273"'),'封面預覽採3:4標題安全區');
+  assert.ok(get('safeAreaGuide').innerHTML.includes('y="602"'),'封面照片區不再垂直拉長');
   get('play').onclick();assert.equal(get('safeAreaGuide').hidden,false,'播放仍顯示安全框');
   get('seek').value='1';get('seek').oninput();
   assert.equal(get('safeAreaGuide').hidden,false,'正文預覽仍顯示安全框');

@@ -1,5 +1,6 @@
 """封面、局部字色、細黑描邊與真正Full HD片頭影格。"""
 import copy
+import base64
 from io import BytesIO
 from pathlib import Path
 import subprocess
@@ -8,6 +9,7 @@ import unittest
 from PIL import Image, ImageChops, ImageStat
 from studio.cover import new_cover,validate_cover,title_colors,title_tile,cover_frame,LAYOUT
 from studio.body import body_layer
+from studio.component import payload
 from studio.models import load_photo,new_label
 from studio.export import export_video,ffmpeg_path
 from studio.rendering import label_tile,crop_photo,render_frame
@@ -22,6 +24,42 @@ def photo(name='case.png',color='red',size=(300,100)):
 
 
 class CoverTests(unittest.TestCase):
+    def test_three_by_four_layout_matches_source_and_letterboxes_video(self):
+        self.assertEqual((LAYOUT['width'],LAYOUT['height']),(1080,1440))
+        self.assertEqual(LAYOUT['title'],dict(x=246,y=273,width=588,height=292))
+        self.assertEqual(LAYOUT['photo'],dict(x=3,y=602,width=1074,height=730))
+        p=photo();c=validate_cover(new_cover(),[p]);frame=cover_frame(c,[p])
+        self.assertEqual(frame.size,(1080,1920))
+        self.assertIsNone(frame.convert('RGB').crop((0,1440,1080,1920)).getbbox(),'3:4構圖下方應補黑')
+        for name in ('title','photo'):
+            box=LAYOUT[name];self.assertLessEqual(box['y']+box['height'],1440)
+        self.assertEqual(frame.getpixel((540,967))[:3],(255,0,0),'照片位於3:4原始安全區')
+
+    def test_old_title_cache_is_rebuilt_for_new_layout(self):
+        p=photo();c=validate_cover(new_cover(),[p]);cache={}
+        payload([p],cache,cover=c)
+        cache['__cover__'].update(style={k:c[k] for k in ('title','color','font_size','highlights')},title='stale-9:16-title')
+        result=payload([p],cache,cover=c)
+        with Image.open(BytesIO(base64.b64decode(result['cover_assets']['title'].split(',',1)[1]))) as im:
+            self.assertEqual(im.size,(588,292),'不得將舊390px文字圖壓扁到新安全區')
+        self.assertEqual(payload([p],cache,cover=c)['cover_assets']['title'],result['cover_assets']['title'])
+
+    def test_running_old_cover_layout_updates_once_and_keeps_content(self):
+        app=authenticated_app()
+        next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
+        ids=[p.id for p in app.session_state.photos]
+        labels=copy.deepcopy(app.session_state.photos[0].labels)
+        app.session_state.cover['title']='保留標題';app.session_state.cover_version=2
+        app.session_state.cover_duration=.3;app.session_state.music['fade_out']=2
+        revision=app.session_state.revision
+        app.run();self.assertFalse(app.exception)
+        self.assertEqual(app.session_state.project_payload['cover_assets']['layout']['height'],1440)
+        self.assertEqual(app.session_state.revision,revision+1)
+        self.assertEqual([p.id for p in app.session_state.photos],ids)
+        self.assertEqual(app.session_state.photos[0].labels,labels)
+        self.assertEqual(app.session_state.cover['title'],'保留標題');self.assertEqual(app.session_state.music['fade_out'],2)
+        app.run();self.assertFalse(app.exception);self.assertEqual(app.session_state.revision,revision+1)
+
     def test_running_half_second_project_updates_png_times_only_once(self):
         app=authenticated_app()
         next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
@@ -66,7 +104,7 @@ class CoverTests(unittest.TestCase):
         data=export_video(photos,template='compare',comparisons=[clip],cover=cover,overlays=[o],assets={asset.id:asset})
         with tempfile.TemporaryDirectory(prefix='cover-clock-') as folder:
             path=Path(folder)/'case.mp4';path.write_bytes(data)
-            for n,expected in ((8,(0,0,255)),(9,(0,0,0)),(18,(0,255,0)),(30,(0,0,255))):
+            for n,expected in ((8,(0,0,0)),(9,(0,0,0)),(18,(0,255,0)),(30,(0,0,255))):
                 target=Path(folder)/f'{n}.png'
                 subprocess.run([ffmpeg_path(),'-y','-i',str(path),'-vf',f'select=eq(n\\,{n})','-frames:v','1',str(target)],capture_output=True,check=True,timeout=60)
                 with Image.open(target) as image:
@@ -103,6 +141,7 @@ class CoverTests(unittest.TestCase):
                     self.assertLess(ImageStat.Stat(delta).mean[0],4)
                     if n<9:
                         self.assertLess(max(image.convert('RGB').getpixel((246,400))),10,'封面安全框不輸出')
+                        self.assertLess(max(ImageStat.Stat(image.convert('RGB').crop((0,1440,1080,1920))).mean),2,'3:4片頭下方補黑')
 
 
 if __name__=='__main__':unittest.main()

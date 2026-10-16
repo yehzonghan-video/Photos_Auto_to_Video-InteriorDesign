@@ -6,7 +6,7 @@ import uuid
 
 from .photo_processing import MAX_INPUT_BYTES, read_upload
 
-BGM_API_VERSION = 5
+BGM_API_VERSION = 6
 MAX_PHOTOS = 12
 MAX_LABELS = 12
 MAX_TOTAL_SECONDS = 120

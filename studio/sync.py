@@ -6,7 +6,7 @@ from .comparison import validate_comparisons
 from .cover import validate_cover, DURATION
 from .music import validate_music
 
-BGM_API_VERSION = 5
+BGM_API_VERSION = 6
 
 
 def apply_editor_event(photos, event, session, revision, request=None):

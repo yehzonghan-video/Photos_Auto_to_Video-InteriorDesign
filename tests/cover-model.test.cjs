@@ -2,6 +2,15 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const C=require('../frontend/cover-editor.js'),T=require('../frontend/timeline-model.js');
 const {DraftState}=require('../frontend/draft-state.js');
 const cover=()=>({enabled:true,title:'老屋88萬',photo_id:'p',color:'#ffffff',font_size:120,highlights:[]});
+test('片頭使用3:4原稿安全區，預覽提示與快取會跟隨排版更新，時長仍0.3秒',()=>{
+  const layout=require('../frontend/cover-layout.json'),c=cover(),element={};
+  assert.equal(layout.width/layout.height,3/4);
+  for(const box of [layout.title,layout.photo])assert.ok(box.x>=0&&box.x+box.width<=1080&&box.y>=0&&box.y+box.height<=1440);
+  C.mountGuide(element);assert.match(element.innerHTML,/y="273"/);assert.match(element.innerHTML,/y="602"/);
+  assert.equal(C.duration(c),.3);
+  const key=C.key(c);try{C.configure({...layout,title:{...layout.title,height:390}});assert.notEqual(C.key(c),key);}
+  finally{C.configure(layout);}assert.equal(C.key(c),key);
+});
 test('反白範圍保留至色盤失焦，使用Unicode索引，改字後舊選取失效',()=>{
   const input={value:'翻新🏠88萬',selectionStart:4,selectionEnd:6};
   const selected=C.selection(input,null);assert.equal(selected.start,3);assert.equal(selected.end,5);

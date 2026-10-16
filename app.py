@@ -17,7 +17,7 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 5:
+    if bootstrap.BGM_API_VERSION != 6:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
@@ -57,9 +57,10 @@ if prior_cover_duration!=DURATION and st.session_state.photos and st.session_sta
     for slot in (st.session_state.overlays,st.session_state.comparison_overlays):
         for overlay in slot:overlay['start']=max(0,overlay['start']+DURATION-prior_cover_duration)
 st.session_state.cover_duration=DURATION
-if st.session_state.get('cover_version')!=2:
-    st.session_state.cover_version=2;st.session_state.project_payload=None
+if st.session_state.get('cover_version')!=3:
+    st.session_state.cover_version=3;st.session_state.project_payload=None
     st.session_state.editor_assets={};st.session_state.output=None
+    st.session_state.output_seconds=None;st.session_state.revision+=1
 if st.session_state.get('music_version')!=1:
     st.session_state.music_version=1;st.session_state.project_payload=None
 if st.session_state.get('body_title_version')!=4:
