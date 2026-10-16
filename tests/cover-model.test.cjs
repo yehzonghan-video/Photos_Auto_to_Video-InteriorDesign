@@ -5,8 +5,10 @@ const cover=()=>({enabled:true,title:'老屋88萬',photo_id:'p',color:'#ffffff',
 test('片頭使用3:4原稿安全區，預覽提示與快取會跟隨排版更新，時長仍0.3秒',()=>{
   const layout=require('../frontend/cover-layout.json'),c=cover(),element={};
   assert.equal(layout.width/layout.height,3/4);
+  assert.deepEqual(layout.origin,{x:0,y:240});
   for(const box of [layout.title,layout.photo])assert.ok(box.x>=0&&box.x+box.width<=1080&&box.y>=0&&box.y+box.height<=1440);
   C.mountGuide(element);assert.match(element.innerHTML,/y="273"/);assert.match(element.innerHTML,/y="602"/);
+  assert.match(element.innerHTML,/transform="translate\(0 240\)"/);
   assert.equal(C.duration(c),.3);
   const key=C.key(c);try{C.configure({...layout,title:{...layout.title,height:390}});assert.notEqual(C.key(c),key);}
   finally{C.configure(layout);}assert.equal(C.key(c),key);

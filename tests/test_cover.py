@@ -26,14 +26,16 @@ def photo(name='case.png',color='red',size=(300,100)):
 class CoverTests(unittest.TestCase):
     def test_three_by_four_layout_matches_source_and_letterboxes_video(self):
         self.assertEqual((LAYOUT['width'],LAYOUT['height']),(1080,1440))
+        self.assertEqual(LAYOUT['origin'],dict(x=0,y=240))
         self.assertEqual(LAYOUT['title'],dict(x=246,y=273,width=588,height=292))
         self.assertEqual(LAYOUT['photo'],dict(x=3,y=602,width=1074,height=730))
         p=photo();c=validate_cover(new_cover(),[p]);frame=cover_frame(c,[p])
         self.assertEqual(frame.size,(1080,1920))
-        self.assertIsNone(frame.convert('RGB').crop((0,1440,1080,1920)).getbbox(),'3:4構圖下方應補黑')
+        for region in ((0,0,1080,240),(0,1680,1080,1920)):
+            self.assertIsNone(frame.convert('RGB').crop(region).getbbox(),'3:4構圖上下各留240px黑邊')
         for name in ('title','photo'):
             box=LAYOUT[name];self.assertLessEqual(box['y']+box['height'],1440)
-        self.assertEqual(frame.getpixel((540,967))[:3],(255,0,0),'照片位於3:4原始安全區')
+        self.assertEqual(frame.getpixel((540,1207))[:3],(255,0,0),'照片隨整張片頭下移240px')
 
     def test_old_title_cache_is_rebuilt_for_new_layout(self):
         p=photo();c=validate_cover(new_cover(),[p]);cache={}
@@ -49,11 +51,12 @@ class CoverTests(unittest.TestCase):
         next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()
         ids=[p.id for p in app.session_state.photos]
         labels=copy.deepcopy(app.session_state.photos[0].labels)
-        app.session_state.cover['title']='保留標題';app.session_state.cover_version=2
+        app.session_state.cover['title']='保留標題';app.session_state.cover_version=3
         app.session_state.cover_duration=.3;app.session_state.music['fade_out']=2
         revision=app.session_state.revision
         app.run();self.assertFalse(app.exception)
         self.assertEqual(app.session_state.project_payload['cover_assets']['layout']['height'],1440)
+        self.assertEqual(app.session_state.project_payload['cover_assets']['layout']['origin'],dict(x=0,y=240))
         self.assertEqual(app.session_state.revision,revision+1)
         self.assertEqual([p.id for p in app.session_state.photos],ids)
         self.assertEqual(app.session_state.photos[0].labels,labels)
@@ -88,7 +91,7 @@ class CoverTests(unittest.TestCase):
         self.assertTrue(any(r>200 and g<80 and b<80 and a>0 for r,g,b,a in tile.get_flattened_data()),'部分文字真正改色')
         self.assertTrue(any(r==g==b==0 and a>100 for r,g,b,a in tile.get_flattened_data()),'文字含細黑描邊')
         frame=cover_frame(c,[p]);self.assertEqual(frame.size,(1080,1920))
-        box=LAYOUT['photo'];self.assertEqual(frame.getpixel((540,box['y']+3))[:3],(0,0,0));self.assertEqual(frame.getpixel((540,box['y']+box['height']//2))[:3],(255,0,0))
+        box=LAYOUT['photo'];offset=LAYOUT['origin']['y'];self.assertEqual(frame.getpixel((540,offset+box['y']+3))[:3],(0,0,0));self.assertEqual(frame.getpixel((540,offset+box['y']+box['height']//2))[:3],(255,0,0))
         # 普通影片文字也要有黑色描邊，背景仍透明。
         label=new_label(1);label.update(text='文字',opacity=0,line=False)
         ordinary=label_tile(label);self.assertEqual(ordinary.getpixel((0,0))[3],0)
@@ -104,7 +107,7 @@ class CoverTests(unittest.TestCase):
         data=export_video(photos,template='compare',comparisons=[clip],cover=cover,overlays=[o],assets={asset.id:asset})
         with tempfile.TemporaryDirectory(prefix='cover-clock-') as folder:
             path=Path(folder)/'case.mp4';path.write_bytes(data)
-            for n,expected in ((8,(0,0,0)),(9,(0,0,0)),(18,(0,255,0)),(30,(0,0,255))):
+            for n,expected in ((8,(0,0,255)),(9,(0,0,0)),(18,(0,255,0)),(30,(0,0,255))):
                 target=Path(folder)/f'{n}.png'
                 subprocess.run([ffmpeg_path(),'-y','-i',str(path),'-vf',f'select=eq(n\\,{n})','-frames:v','1',str(target)],capture_output=True,check=True,timeout=60)
                 with Image.open(target) as image:
@@ -141,7 +144,8 @@ class CoverTests(unittest.TestCase):
                     self.assertLess(ImageStat.Stat(delta).mean[0],4)
                     if n<9:
                         self.assertLess(max(image.convert('RGB').getpixel((246,400))),10,'封面安全框不輸出')
-                        self.assertLess(max(ImageStat.Stat(image.convert('RGB').crop((0,1440,1080,1920))).mean),2,'3:4片頭下方補黑')
+                        for region in ((0,0,1080,240),(0,1680,1080,1920)):
+                            self.assertLess(max(ImageStat.Stat(image.convert('RGB').crop(region)).mean),2,'置中片頭上下各留240px黑邊')
 
 
 if __name__=='__main__':unittest.main()

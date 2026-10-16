@@ -9,7 +9,7 @@ from .rendering import font_path
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'cover-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'opening-template.png'
 DURATION = LAYOUT['duration']
-BGM_API_VERSION = 6
+BGM_API_VERSION = 7
 
 
 def new_cover():
@@ -95,8 +95,9 @@ def template_bytes():
 
 
 def cover_frame(cover,photos):
-    frame=Image.new('RGBA',(1080,1920),'black')
-    # 片頭所有區域共用3:4原稿座標；置頂等比例顯示，9:16影片下方補黑。
+    canvas=Image.new('RGBA',(1080,1920),'black')
+    frame=Image.new('RGBA',(LAYOUT['width'],LAYOUT['height']),'black')
+    # 先完成整張3:4構圖，再整體置中；LOGO、文字與照片共用相同偏移。
     with Image.open(TEMPLATE) as image:
         template=ImageOps.contain(image.convert('RGBA'),(LAYOUT['width'],LAYOUT['height']))
         frame.alpha_composite(template,((LAYOUT['width']-template.width)//2,0))
@@ -109,4 +110,5 @@ def cover_frame(cover,photos):
         fitted=ImageOps.contain(working,(box['width'],box['height']),Image.Resampling.LANCZOS)
         frame.alpha_composite(fitted,(box['x']+(box['width']-fitted.width)//2,box['y']+(box['height']-fitted.height)//2))
     frame.alpha_composite(title_tile(cover),(LAYOUT['title']['x'],LAYOUT['title']['y']))
-    return frame
+    canvas.alpha_composite(frame,(LAYOUT['origin']['x'],LAYOUT['origin']['y']))
+    return canvas

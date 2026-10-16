@@ -1,6 +1,7 @@
 {
   "width": 1080,
   "height": 1440,
+  "origin": {"x": 0, "y": 240},
   "duration": 0.3,
   "title": {"x": 246, "y": 273, "width": 588, "height": 292},
   "photo": {"x": 3, "y": 602, "width": 1074, "height": 730}
