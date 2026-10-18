@@ -227,7 +227,7 @@ test('安全框開關與預覽只處理DOM；標題可拖出內框、rerun和重
   get('showSafeArea').checked=true;get('showSafeArea').onchange();get('edit').onclick();assert.equal(get('safeAreaGuide').hidden,false);
   assert.equal(env.changes().length,0);
 });
-test('前後標題拖曳共用位置、選取自動跳至對應時間、舊草稿升級且rerun不送Python',async()=>{
+test('前後標題拖曳共用位置、選取保留時間、舊草稿升級且rerun不送Python',async()=>{
   const env=environment(),rows=env.rows();rows[0].role='before';rows[1].role='after';
   const c=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));
   c.labels[0].text='原始空間';c.labels[0].x=.2;
@@ -237,7 +237,8 @@ test('前後標題拖曳共用位置、選取自動跳至對應時間、舊草�
   const get=id=>env.elements.get(id),clip=()=>vm.runInContext('photo()',env.context);
   assert.equal(clip().labels[0].text,'原始空間');assert.equal(clip().labels[0].opacity,0);
   assert.equal(clip().labels[1].x,.2);assert.equal(clip().labels[0].end,2);
-  get('labels').children[1].onclick();assert.equal(vm.runInContext('time',env.context),2);
+  get('labels').children[1].onclick();assert.equal(vm.runInContext('time',env.context),0);
+  get('seek').value=2.5;get('seek').oninput();
   assert.equal(vm.runInContext('visibleEditLabel(photo(),photo().labels[0])',env.context),false);
   const b=vm.runInContext('bounds(label())',env.context);
   get('canvas').dispatch('pointerdown',{clientX:b.x+30,clientY:b.y+30});
@@ -257,6 +258,7 @@ test('真正事件處理器：連續新增10個、500次移動、修改、刪除
   for(let i=0;i<10;i++)get('addLabel').onclick();
   assert.equal(get('labels').children.length,10);assert.equal(env.changes().length,0);
   assert.ok(vm.runInContext('tileFor(label()).width',env.context)>100);
+  get('seek').value=2;get('seek').oninput();
   for(let index=0;index<5;index++) {
     get('labels').children[index].onclick();
     const start=vm.runInContext('({x:bounds(label()).x+30,y:bounds(label()).y+30})',env.context);
@@ -360,7 +362,7 @@ test('對比自動／重複配對、裁切、分割線500次拖曳、PNG及模�
   get('viewBefore').onclick();get('fit').value='cover';get('fit').onchange();get('zoom').value=2;get('zoom').oninput();get('crop_x').value=.8;get('crop_x').oninput();
   assert.equal(vm.runInContext('photo().before_crop.zoom',env.context),2);assert.equal(vm.runInContext('photo().after_crop.zoom',env.context),1);
   get('cmp_mode').value='reveal';get('cmp_mode').oninput();get('cmp_direction').value='rtl';get('cmp_direction').oninput();
-  get('duration').value=6;get('duration').oninput();get('text').value='使用者修改施工文字';get('text').oninput();
+  get('duration').value=6;get('duration').oninput();get('labels').children[0].onclick();get('text').value='使用者修改施工文字';get('text').oninput();
   get('assetLibrary').children[0].onclick();get('png_start').value=3;get('png_start').oninput();get('png_duration').value=4;get('png_duration').oninput();
   assert.equal(env.changes().length,0);assert.equal(vm.runInContext('draft.overlays[0].id',env.context),'items-png');
   const tc=get('timelineCanvas'),hit=vm.runInContext('timeline.hits.find(h=>h.item.type==="comparison")',env.context),x=(hit.x+hit.w/2)*1080/tc.width,y=(hit.y+10)*1920/tc.height;
@@ -391,7 +393,7 @@ test('照片標籤延後一次、新增預設1秒、正文100px／50%／24.5%，
   const project={photos:rows,cover};await env.receive({project});
   assert.equal(vm.runInContext('photos[0].labels[0].start',env.context),1.3);
   assert.equal(get('bodySize').value,100);assert.equal(get('bodyX').value,50);assert.equal(get('bodyY').value,24.5);
-  get('start').value='.5';get('start').oninput();get('addLabel').onclick();
+  get('labels').children[0].onclick();get('start').value='.5';get('start').oninput();get('addLabel').onclick();
   assert.equal(vm.runInContext('photos[0].labels[1].start',env.context),1);
   await env.receive({project,revision:2});const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
   assert.equal(rebuilt.changes().length,0);assert.equal(vm.runInContext('photos[0].labels[0].start',rebuilt.context),.5);
@@ -485,4 +487,103 @@ test('即時版本狀態不送Python，舊ACK不蓋新版本，工作區檢查�
   assert.equal(vm.runInContext('draft.rows[0].labels[0].text',env.context),'同步途中更新');
   const rebuilt=environment(env.storage);await rebuilt.receive({project,versions:{...versions,synced:sent.content_version},revision:2});
   assert.equal(vm.runInContext('draft.contentVersion',rebuilt.context),newest);
+});
+
+test('暫停／seek維持動畫姿態與內容版本，未出現文字只可在清單編輯或明確定位',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  await env.receive();get('addLabel').onclick();
+  const schema=JSON.parse(fs.readFileSync('frontend/content-schema.json','utf8'));
+  const context={schema,photos:{p1:'hash',p2:'hash2'},assets:[],music:null,width:1080,engine:'renderer'};
+  env.context.testContext=context;run('draft.configureVersions({context:testContext,synced:draft.contentVersion})');
+  const seq=run('draft.seq'),version=run('draft.contentVersion');
+  get('seek').value=.5;get('seek').oninput();
+  assert.equal(run('canEdit()'),true);assert.equal(run('labelPose(photo(),photo().labels[0])'),null);
+  get('labels').children[0].onclick();assert.equal(run('time'),.5);assert.equal(get('text').value,'裝修項目');
+  get('edit').onclick();assert.equal(run('positioning'),true);assert.ok(run('posedBounds(photo(),label())'));
+  get('edit').onclick();assert.equal(run('labelPose(photo(),label())'),null);
+  get('seek').value=1.2;get('seek').oninput();
+  assert.deepEqual({...run('labelPose(photo(),label())')},StudioAnimation.pose(run('label()'),1.2));
+  assert.notEqual(run('labelPose(photo(),label()).x'),0,'暫停途中不能跳到進場完成位置');
+  await get('play').onclick();assert.equal(run('playing'),true);assert.equal(run('canEdit()'),false);
+  get('canvas').dispatch('pointerdown',{clientX:300,clientY:600});assert.equal(run('dragging'),null);
+  await get('play').onclick();assert.equal(run('canEdit()'),true);assert.equal(run('time'),1.2);
+  get('timelineZoom').value=2;get('timelineZoom').oninput();
+  get('photos').children[1].onclick();assert.equal(get('selectionHeading').textContent,'目前片段：second');
+  const hit=run('timeline.hits.find(h=>h.item.type==="photo")'),tc=get('timelineCanvas');
+  tc.dispatch('pointerdown',{clientX:(hit.x+hit.w/2)*1080/tc.width,clientY:(hit.y+10)*1920/tc.height});tc.dispatch('pointerup');
+  assert.equal(run('draft.seq'),seq);assert.equal(run('draft.currentVersion()'),version);
+  assert.equal(env.changes().length,0);
+});
+
+test('暫停中按真正滑入位置拖曳文字，增量正確且不跳動畫／不送Python',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  await env.receive();get('addLabel').onclick();get('seek').value=1.2;get('seek').oninput();
+  const b=run('posedBounds(photo(),label())'),x=run('label().x'),y=run('label().y');
+  get('canvas').dispatch('pointerdown',{clientX:b.x+b.width/2,clientY:b.y+b.height/2});
+  assert.equal(run('dragging.type'),'label');
+  get('canvas').dispatch('pointermove',{clientX:b.x+b.width/2+50,clientY:b.y+b.height/2+40});get('canvas').dispatch('pointerup');
+  assert.ok(Math.abs(run('label().x')-x-50/1080)<1e-8);assert.ok(Math.abs(run('label().y')-y-40/1920)<1e-8);
+  assert.equal(run('time'),1.2);assert.equal(env.changes().length,0);
+  assert.ok(get('selectionHeading').textContent.startsWith('文字：'));
+});
+
+test('暫停PNG依實際淡入與滑入姿態拖曳／縮放，選取不跳回起點，設定優先',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  const assets=[{id:'asset',name:'透明圖層',image:'png-image',width:220,height:110}];
+  await env.receive({project:{photos:env.rows(),assets}});get('assetLibrary').children[0].onclick();
+  get('png_animation').value='left';get('png_animation').oninput();
+  get('seek').value=.2;get('seek').oninput();const g=run('pngEditor.posedGeometry(pngEditor.item())'),before=run('pngEditor.item().x');
+  get('canvas').dispatch('pointerdown',{clientX:g.x,clientY:g.y});assert.equal(run('dragging.type'),'png');
+  assert.equal(run('time'),.2);
+  get('canvas').dispatch('pointermove',{clientX:g.x+60,clientY:g.y+20});get('canvas').dispatch('pointerup');
+  assert.ok(Math.abs(run('pngEditor.item().x')-before-60/1080)<1e-8);
+  const shown=run('pngEditor.posedGeometry(pngEditor.item())'),scale=run('pngEditor.item().scale');
+  get('canvas').dispatch('pointerdown',{clientX:shown.x+shown.width/2,clientY:shown.y+shown.height/2});
+  assert.equal(run('pngEditor.drag.mode'),'scale');
+  get('canvas').dispatch('pointermove',{clientX:shown.x+shown.width,clientY:shown.y+shown.height});get('canvas').dispatch('pointerup');
+  assert.ok(run('pngEditor.item().scale')>scale);assert.ok(get('selectionHeading').textContent.startsWith('PNG：'));
+  assert.equal(env.changes().length,0);
+});
+
+test('替換目前照片只送非內容事件，未同步標籤與前後對比定位在媒體回覆後保留',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  await env.receive();get('addLabel').onclick();get('text').value='未同步人工標籤';get('text').oninput();
+  const seq=run('draft.seq');get('photos').children[0].onclick();get('replacePhoto').onclick();
+  const event=env.changes()[0].value;assert.equal(event.action,'replace_photo');assert.equal(event.photo_id,'p1');assert.equal(run('draft.seq'),seq);
+  const rows=env.rows();rows[0]={...rows[0],content_hash:'new-image',name:'new.png',image:'replacement-image'};
+  await env.receive({project:{photos:rows},revision:2});assert.equal(run('photos[0].labels[0].text'),'未同步人工標籤');assert.equal(run('photos[0].image'),'replacement-image');
+  assert.equal(run('photos[0].id'),'p1');assert.equal(run('selectedPhoto'),'p1');assert.equal(run('selectedLabel'),null,'rerun仍保留照片選取，不改成第一個文字');
+  get('photos').children[1].onclick();get('replacePhoto').onclick();assert.equal(env.changes()[1].value.photo_id,'p2');
+});
+
+test('播放跨照片後暫停同步設定，錄製結尾不開編輯框；時間軸微動不改自動時間',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  await env.receive();await get('play').onclick();run('tick(5000)');await get('play').onclick();
+  assert.equal(run('selectedPhoto'),'p2');assert.equal(get('photoNumber').textContent,'2 / 2');assert.equal(run('canEdit()'),true);
+  run('recording=true;playing=true;tick(9000)');assert.equal(run('editing'),false);assert.equal(run('canEdit()'),false);
+  run('recording=false');
+  {
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  const cover={enabled:true,title:'Test',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[]};
+  await env.receive({project:{photos:env.rows(),cover,cover_assets:{layout:JSON.parse(fs.readFileSync('frontend/cover-layout.json','utf8'))}}});
+  const hit=run('timeline.hits.find(h=>h.item.type==="body_title")'),tc=get('timelineCanvas');
+  const x=(hit.x+hit.w/2)*1080/tc.width,y=(hit.y+10)*1920/tc.height;
+  tc.dispatch('pointerdown',{clientX:x,clientY:y});const seq=run('draft.seq');
+  tc.dispatch('pointermove',{clientX:x+.01,clientY:y});tc.dispatch('pointerup');
+  assert.equal(run('draft.cover.body.auto_timing'),true);assert.equal(run('draft.seq'),seq);
+  }
+});
+
+test('替換媒體回覆不覆蓋人工定位，AI與對比引用標記待確認且舊回覆無效',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  const rows=env.rows();rows[0].role='before';rows[1].role='after';
+  const clip=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));
+  await env.receive({project:{photos:rows,template_id:'compare',comparisons:[clip]}});
+  run("photos[0].labels.push({id:'ai',text:'木紋地板',source:'gemini',needs_review:false,point_x:.12,point_y:.8});draft.comparisons[0].labels[0].source='gemini';draft.comparisons[0].labels[0].needs_review=false;draft.dirty=true;");
+  const changed=rows.map(p=>({...p}));changed[0].content_hash='replacement';changed[0].image='new-image';
+  await env.receive({project:{photos:changed,template_id:'compare',comparisons:[clip]},revision:2});
+  assert.equal(run('photos[0].labels[0].needs_review'),true);assert.equal(run('photos[0].labels[0].point_x'),.12);
+  assert.equal(run('draft.comparisons[0].labels[0].needs_review'),true);
+  await env.receive({project:{photos:rows,template_id:'compare',comparisons:[clip]},revision:1});
+  assert.equal(run('photos[0].content_hash'),'replacement');assert.equal(env.changes().length,0);
 });

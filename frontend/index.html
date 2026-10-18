@@ -21,15 +21,16 @@
     <section class="preview-panel">
       <div class="preview-toolbar"><span id="mode">構圖與標籤編輯</span><label class="safe-area-toggle"><input id="showSafeArea" type="checkbox" checked>顯示安全區</label><span class="badge">9:16 · 1080p</span></div>
       <div class="canvas-wrap"><div class="canvas-stage"><canvas id="canvas" width="1080" height="1920" tabindex="0" aria-label="影片畫布；滑鼠或觸控拖曳標籤及圓形定位點"></canvas><div id="safeAreaGuide" class="safe-area-guide" aria-hidden="true" hidden></div></div></div>
-      <div class="playback"><button id="play" class="primary">▶ 預覽影片</button><button id="edit">編輯目前照片</button><output id="clock">0.0 s</output></div>
+      <div class="playback"><button id="play" class="primary">▶ 預覽影片</button><button id="edit">定位選取文字</button><output id="clock">0.0 s</output></div>
       <input id="seek" type="range" min="0" max="20" value="0" step=".033333" aria-label="影片預覽時間軸">
-      <p class="hint">拖曳文字移動標籤，拖曳圓點定位物件。預覽與輸出會隱藏選取框。</p>
+      <p class="hint">暫停或拖動播放指針後可直接編輯。尚未出現的文字可從清單修改，或按「定位選取文字」顯示定位輔助；不改變出現時間。</p>
       <p class="hint">安全框只供構圖參考，不會輸出；自動施工前／後文字放在內框內，所有素材仍可自由拖出。</p>
       <div class="browser-export"><button id="browserExport">瀏覽器 MP4</button><span id="support" class="hint"></span></div>
       <progress id="recordProgress" value="0" max="1" hidden></progress>
       <div id="browserResult" hidden><a id="browserDownload" download="室內設計案例.mp4">下載瀏覽器 MP4</a><video id="browserVideo" controls playsinline></video></div>
     </section>
-    <aside class="controls">
+    <aside class="controls" id="settingsPanel" aria-label="目前素材設定">
+      <div id="selectionHeading" class="section-title" role="status"></div>
       <details id="coverPanel" hidden open>
         <summary>片頭封面 · 3:4 · 固定0.3秒</summary>
         <label class="check"><input id="coverEnabled" type="checkbox">加入片頭封面</label>
@@ -91,7 +92,9 @@
         <div class="row"><button id="copyAfterLabels">加入施工後照片標籤</button><button id="addComparisonTitle">新增片段標題標籤</button></div>
         <p class="hint">選擇裁切對象後，下方照片顯示方式與裁切控制只調整該側。左右分割可直接拖曳畫布上的分割線。片段及標籤時間以此組配對開始為基準。</p>
       </div>
+      <section id="photoSettings">
       <div class="section-title">照片設定 <span id="photoNumber"></span></div>
+      <button id="replacePhoto">替換照片</button><p id="replacementHint" class="hint"></p>
       <label class="field">顯示秒數<input id="duration" type="number" min="1" max="20" step=".1" value="4"></label>
       <div class="row"><button id="moveLeft">← 前移</button><button id="moveRight">後移 →</button><button id="deletePhoto" class="danger">刪除照片</button></div>
       <label class="field">照片顯示方式<select id="fit"><option value="contain">完整照片（空白處留黑）</option><option value="cover">填滿畫面（裁切照片）</option></select></label>
@@ -101,6 +104,8 @@
         <label class="field">水平裁切<input id="crop_x" type="range" min="0" max="1" step=".01"></label>
         <label class="field">垂直裁切<input id="crop_y" type="range" min="0" max="1" step=".01"></label>
       </details>
+      </section>
+      <section id="labelSettings">
       <div class="section-title">裝修標籤 <button id="addLabel" class="primary">＋ 新增標籤</button></div>
       <div id="labels" class="labels"></div>
       <div id="labelForm" hidden>
@@ -121,6 +126,7 @@
         </details>
         <div class="row"><button id="deleteLabel" class="danger">刪除此標籤</button><span id="position" class="hint"></span></div>
       </div>
+      </section>
       <div id="overlayForm" hidden>
         <div class="section-title">PNG 圖層 <span id="overlayName"></span></div>
         <div class="row"><label class="field">開始秒數<input id="png_start" type="number" min="0" step=".033333"></label><label class="field">結束秒數<input id="png_end" type="number" min="0" step=".033333"></label></div>

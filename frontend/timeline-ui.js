@@ -56,14 +56,17 @@
     move(e){
       if(!this.drag||this.hooks.locked())return;const pos=this.xy(e),d=this.drag;
       if(d.seek){this.hooks.seek((pos.x-84)/this.px);return;}
+      const delta=StudioTimeline.snap((pos.x-d.x)/d.px);
+      if(delta===0&&!d.changed)return;
+      d.changed=true;
       const current=new Map(this.hooks.photos().map(p=>[p.id,p]));
       const p=this.hooks.photos();p.splice(0,p.length,...d.photos.map(row=>Object.assign(current.get(row.id),JSON.parse(JSON.stringify(row)))));
       const overlays=this.hooks.overlays();overlays.splice(0,overlays.length,...JSON.parse(JSON.stringify(d.overlays)));
       if(d.bodyTiming)Object.assign(this.hooks.body(),d.bodyTiming);
-      StudioTimeline.edit(d.item,d.mode,(pos.x-d.x)/d.px,p,overlays,this.hooks.offset?.()||0,this.hooks.body?.());
+      if(delta!==0)StudioTimeline.edit(d.item,d.mode,delta,p,overlays,this.hooks.offset?.()||0,this.hooks.body?.());
       this.hooks.change(false);this.draw();
     }
-    finish(){if(this.drag){const changed=!this.drag.seek;this.drag=null;if(changed)this.hooks.change(true);}}
+    finish(){if(this.drag){const changed=!!this.drag.changed;this.drag=null;if(changed)this.hooks.change(true);}}
   }
   if(typeof module!=='undefined')module.exports={TimelineUI};else root.StudioTimelineUI={TimelineUI};
 })(typeof window!=='undefined'?window:this);

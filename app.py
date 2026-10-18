@@ -7,23 +7,22 @@ import uuid
 import streamlit as st
 
 from studio import bootstrap
-from studio.models import MAX_PHOTOS, load_photo
 from studio.rendering import font_path, template_config
 from studio.ai_ui import ai_panel
 from studio.overlays import discover_assets, load_asset, MAX_ASSETS
-from studio.photo_processing import fit_session
 from studio.access import require_password, logout
 
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 10:
+    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 2:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
     from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
     from studio.project_ui import prepare_download, import_panel, download_panel
     from studio import versioning, protection
+    from studio.photo_intake import append_photos, replace_photo, batch_id
     from studio.ai_ui import ai_panel
 except (RuntimeError, ImportError, OSError) as exc:
     st.error(str(exc))
@@ -119,7 +118,7 @@ def clear_workspace():
     state.photo_upload_epochs={role:epoch+1 for role,epoch in state.photo_upload_epochs.items()}
     for key,value in dict(ai_cache={},ai_results={},ai_reports=[],ai_imports=[],ai_calls=0,
                           ai_queue=[],ai_delivered={},ai_pending={}).items():state[key]=value
-    for key in ('ai_chosen','ai_consent','ai_force','ai_refresh_requested','render_job','project_save_job','studio_editor'):state.pop(key,None)
+    for key in ('ai_chosen','ai_consent','ai_force','ai_refresh_requested','render_job','project_save_job','studio_editor','replacement_request','photo_receipts'):state.pop(key,None)
     invalidate()
 
 
@@ -136,12 +135,6 @@ if approved:
     st.rerun()
 
 
-def check_capacity(photos):
-    if len(photos) > MAX_PHOTOS:
-        raise ValueError("每個工作階段最多 12 張照片。")
-    return fit_session(photos)
-
-
 def optimization_notice(photos, previous):
     original = {p.id: p.original for p in previous}
     return " ".join(f"{p.name}：{p.optimization_note}" for p in photos
@@ -149,17 +142,17 @@ def optimization_notice(photos, previous):
 
 
 def add_uploaded(uploaded, role="general"):
-    if len(st.session_state.photos)+len(uploaded)>MAX_PHOTOS:
-        raise ValueError("每個工作階段最多12張來源照片；配對可重複使用同一張。")
-    new=[load_photo(item.name,item.getvalue()) for item in uploaded]
-    for photo in new:photo.role=role
-    proposed=check_capacity(st.session_state.photos+new)
-    if sum(p.duration for p in proposed)>120:
-        raise ValueError("照片總長最多120秒，請先縮短現有照片秒數。")
-    note=optimization_notice(proposed,st.session_state.photos)
-    st.session_state.photos=proposed;st.session_state.uploader_epoch+=1
+    state=st.session_state
+    event_id=batch_id(state.editor_session,role,state.photo_upload_epochs[role],uploaded)
+    previous=state.photos
+    result=append_photos(state,uploaded,role,event_id)
+    if result['replayed']:return False
+    note=optimization_notice(state.photos,previous)
     st.session_state.photo_upload_epochs[role]+=1
-    invalidate();st.session_state.notice=f"已加入 {len(new)} 張照片。 "+note
+    state.notice=f"已加入 {len(result['added'])} 張，未加入 {len(result['errors'])} 張。 "+note
+    if result['errors']:state.notice+='\n\n'+'\n\n'.join(result['errors'])
+    state.notice_error=bool(result['errors'])
+    return True
 
 
 prepare_download(st.session_state)
@@ -213,19 +206,16 @@ if st.session_state.notice:
 st.subheader("01　準備案例照片")
 compare_mode=st.session_state.template_mode=="compare"
 workspace_locked=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))
-sources=[("before","施工前照片（可一次多張）","加入施工前照片"),("after","施工後照片（可一次多張）","加入施工後照片")] if compare_mode else [("general","加入照片（可一次多張）","加入已選照片")]
+sources=[("before","施工前照片（可一次多張）"),("after","施工後照片（可一次多張）")] if compare_mode else [("general","加入照片（可一次多張）")]
 columns=st.columns([3]*len(sources)+[1])
-for col,(role,title,button_name) in zip(columns,sources):
+for col,(role,title) in zip(columns,sources):
     with col:
         uploaded=st.file_uploader(title,type=["jpg","jpeg","png","webp"],accept_multiple_files=True,
-                                 max_upload_size=200,key=f"uploads_{role}_{st.session_state.photo_upload_epochs[role]}")
-        st.caption("一般照片保留原檔；大照片或整批負荷較高時自動等比例最佳化。")
-        if st.button(button_name,disabled=not uploaded or workspace_locked,type="primary"):
-            try:
-                with st.spinner("正在準備照片；大照片會自動最佳化…"):add_uploaded(uploaded,role)
-                st.rerun()
-            except (ValueError,OSError,MemoryError) as exc:
-                st.error(str(exc) or "記憶體不足，請稍後重試。")
+                                 max_upload_size=200,key=f"uploads_{role}_{st.session_state.photo_upload_epochs[role]}",disabled=workspace_locked)
+        st.caption("選檔後自動追加；再次選擇同一張照片也可加入。大照片自動等比例最佳化。")
+        if uploaded and not workspace_locked:
+            with st.spinner("正在準備照片；大照片會自動最佳化…"):added=add_uploaded(uploaded,role)
+            if added:st.rerun()
 with columns[-1]:
     st.caption("想先試操作？")
     if st.button("載入前後對比測試圖" if compare_mode else "載入 5 張測試示意圖", use_container_width=True, disabled=bool(st.session_state.photos) or workspace_locked):
@@ -244,31 +234,34 @@ if not photos:
     st.info("先加入案例照片、載入測試示意圖，或從左側匯入專案檔，即可開始編輯。")
     st.stop()
 
-with st.expander("替換單張照片", expanded=False):
-    target_id = st.selectbox("要替換的照片", [p.id for p in photos],
-                            format_func=lambda ident: next(f"{i+1} · {p.name}" for i,p in enumerate(photos) if p.id == ident))
-    replacement = st.file_uploader("選擇替換照片", type=["jpg", "jpeg", "png", "webp"], max_upload_size=200,
-                                   key=f"replacement_{st.session_state.uploader_epoch}")
-    st.caption("替換後保留此張照片的標籤與構圖設定，請重新確認定位點。")
-    if st.button("套用替換照片", disabled=replacement is None or workspace_locked):
+def dismiss_replacement():
+    st.session_state.pop('replacement_request',None)
+
+
+@st.dialog('替換目前選取的照片',on_dismiss=dismiss_replacement)
+def replacement_dialog(request):
+    target=next((p for p in photos if p.id==request['photo_id']),None)
+    if target is None:
+        st.warning('照片已不存在，請關閉視窗重新選取。');return
+    st.caption(f'目前照片：{target.name}。選檔後直接替換；保留順序、時長、標籤、構圖與配對引用。')
+    st.caption('新圖構圖可能不同，請檢查裁切與定位點；AI標籤會標記待確認，不會移動人工定位。')
+    replacement=st.file_uploader('選擇替換照片',type=['jpg','jpeg','png','webp'],max_upload_size=200,
+                                 key=f"replacement_{request['id']}",disabled=workspace_locked)
+    if replacement is not None and not workspace_locked:
         try:
-            fresh = load_photo(replacement.name, replacement.getvalue())
-            target = next(p for p in photos if p.id == target_id)
-            fresh.id = target.id
-            fresh.duration, fresh.zoom, fresh.crop_x, fresh.crop_y = target.duration, target.zoom, target.crop_x, target.crop_y
-            fresh.fit = getattr(target, "fit", "contain")
-            fresh.role=target.role
-            fresh.labels = target.labels
-            proposed = [fresh if p.id == target_id else p for p in photos]
-            proposed = check_capacity(proposed)
-            note = optimization_notice(proposed, photos)
-            st.session_state.photos = proposed
-            st.session_state.uploader_epoch += 1
-            invalidate()
-            st.session_state.notice = "已替換照片。 " + note
+            ident=batch_id(st.session_state.editor_session,'replace:'+target.id,request['id'],[replacement])
+            replace_photo(st.session_state,target.id,replacement,ident)
+            dismiss_replacement()
+            st.session_state.notice='已替換照片；請確認裁切、標籤與定位點。未套用的編輯仍保留。'
             st.rerun()
         except (ValueError, OSError, MemoryError) as exc:
-            st.error(str(exc) or "記憶體不足，無法完成此照片的自動最佳化，請稍後重試。")
+            st.error(str(exc) or '無法替換，原照片與設定已保留。')
+    if st.button('取消替換'):
+        dismiss_replacement();st.rerun()
+
+
+if st.session_state.get('replacement_request') and not workspace_locked:
+    replacement_dialog(st.session_state.replacement_request)
 
 with st.expander("上傳 PNG 素材（透明 LOGO、箭頭、價格框）", expanded=False):
     st.caption("素材僅保存在目前工作階段；單張最多5 MB／800萬畫素。上傳後到編輯器的 PNG 素材庫點選加入。請使用有權使用的素材。")

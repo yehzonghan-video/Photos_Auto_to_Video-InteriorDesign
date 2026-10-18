@@ -50,6 +50,11 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(music.MAX_MUSIC_UPLOAD_MB,200)
             self.assertEqual(music.MAX_MUSIC_BYTES,200*1024*1024)
 
+    def test_old_sync_without_replacement_event_is_reloaded(self):
+        with patch.object(sync,'EDITOR_UI_VERSION',0):
+            video_modules()
+            self.assertEqual(sync.EDITOR_UI_VERSION,bootstrap.EDITOR_UI_VERSION)
+
     def test_live_streamlit_old_payload_preserves_photos_labels_and_music(self):
         app=authenticated_app()
         next(b for b in app.button if b.label=='載入 5 張測試示意圖').click().run()

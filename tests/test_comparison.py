@@ -221,14 +221,15 @@ class ComparisonTests(unittest.TestCase):
         data=source('sample','general','red').original
         def picker(label,*args,**kwargs):
             value=original(label,*args,**kwargs)
-            if label.startswith('施工前照片'):return [SimpleNamespace(name=f'b{i}.png',getvalue=lambda:data) for i in range(2)]
-            if label.startswith('施工後照片'):return [SimpleNamespace(name='a.png',getvalue=lambda:data)]
+            if kwargs.get('key')=='uploads_before_0':return [SimpleNamespace(name=f'b{i}.png',getvalue=lambda:data) for i in range(2)]
+            if kwargs.get('key')=='uploads_after_0':return [SimpleNamespace(name='a.png',getvalue=lambda:data)]
             return value
         with patch('streamlit.file_uploader',side_effect=picker):
-            app.run();next(b for b in app.button if b.label=='加入施工前照片').click().run()
+            app.run()
             self.assertEqual(app.session_state.photo_upload_epochs['before'],1)
-            self.assertEqual(app.session_state.photo_upload_epochs['after'],0,'加入前照片不得清掉後照片的上傳控制')
-            next(b for b in app.button if b.label=='加入施工後照片').click().run()
+            self.assertEqual(app.session_state.photo_upload_epochs['after'],1)
+            revision=app.session_state.revision;app.run()
+            self.assertEqual(app.session_state.revision,revision)
         self.assertFalse(app.exception);photos=app.session_state.photos
         self.assertEqual([p.role for p in photos],['before','before','after'])
         clips,left=auto_pair(photos);self.assertEqual((len(clips),left),(1,1))

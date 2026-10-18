@@ -9,6 +9,8 @@
     // 本地排序／刪除保留，新上傳的照片加在最後；後端刪除的照片不復活。
     return [...local.filter(row => live.has(row.id)).map(row => ({...live.get(row.id), ...row,
       name:live.get(row.id).name,image:live.get(row.id).image, tiles:live.get(row.id).tiles,
+      labels:row.content_hash&&row.content_hash!==live.get(row.id).content_hash
+        ?row.labels.map(l=>l.source==='gemini'?{...l,needs_review:true}:l):row.labels,
       content_hash:live.get(row.id).content_hash})),
       ...remote.filter(row => !old.has(row.id))];
   }
@@ -49,6 +51,9 @@
       else if(music)this.music.source=music.source; // 上傳／移除採伺服器來源，未套用音量與淡出仍保留。
       if(success&&!newer) {this.rows=rows;this.overlays=clone(overlays);this.comparisons=comparisons;this.comparisonOverlays=clone(comparisonOverlays);this.dirty=false;this.deleted=[];}
       else if(this.dirty||this.pending) {
+        const changed=new Set(this.rows.filter(p=>p.content_hash&&rows.some(r=>r.id===p.id&&r.content_hash!==p.content_hash)).map(p=>p.id));
+        for(const c of this.comparisons)if(changed.has(c.before_id)||changed.has(c.after_id))
+          for(const l of c.labels)if(l.source==='gemini')l.needs_review=true;
         this.rows=merge(this.rows,rows.filter(row=>!this.deleted.includes(row.id)));
       }else {this.rows=rows;this.overlays=clone(overlays);this.comparisons=comparisons;this.comparisonOverlays=clone(comparisonOverlays);}
       this.revision=revision;

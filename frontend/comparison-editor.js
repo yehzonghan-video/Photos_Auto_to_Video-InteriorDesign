@@ -35,9 +35,10 @@
           for(const [text,delta] of [['←',-1],['→',1]]){const b=document.createElement('button');b.textContent=text;b.title=`${p.name} ${text==='←'?'前移':'後移'}`;b.onclick=()=>{if(h.locked())return;const all=h.photos(),indices=all.map((row,i)=>({row,i})).filter(v=>(v.row.role||'general')===role),index=indices.findIndex(v=>v.row.id===p.id),other=indices[index+delta];if(!other)return;
             const i=indices[index].i,j=other.i;[all[i],all[j]]=[all[j],all[i]];h.change();this.library();};controls.append(b);}
           const remove=document.createElement('button');remove.textContent='刪除來源';remove.className='danger';remove.title='同時移除引用此照片的配對';remove.onclick=()=>{if(h.locked())return;h.removeSource(p.id);this.prune();h.change();this.library();};
-          controls.append(remove);card.append(img,name,select,controls);list.append(card);}
+          const replace=document.createElement('button');replace.textContent='替換照片';replace.onclick=()=>{if(!h.locked())h.replace(p.id);};
+          controls.append(replace,remove);card.append(img,name,select,controls);list.append(card);}
         if(!rows.length){const empty=document.createElement('p');empty.textContent='尚無照片';list.append(empty);} $('sourceBank').append(group);}
-      $('pairSummary').textContent=`${h.clips().length}組配對 · ${unpaired}張來源未配對；多餘照片保留。分類／刪除來源會移除引用它的配對；替換照片請使用上方功能。`;
+      $('pairSummary').textContent=`${h.clips().length}組配對 · ${unpaired}張來源未配對；多餘照片保留。每張來源可直接替換；分類／刪除來源會移除引用它的配對。`;
     }
     prune(){const h=this.hooks,b=new Map(h.photos().map(p=>[p.id,p])),rows=h.clips();
       for(let i=rows.length-1;i>=0;i--)if(b.get(rows[i].before_id)?.role!=='before'||b.get(rows[i].after_id)?.role!=='after')rows.splice(i,1);}

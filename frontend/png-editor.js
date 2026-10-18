@@ -54,24 +54,29 @@
     }
     clampPosition(o){const g=this.geometry(o);if(g){o.x=g.x/1080;o.y=g.y/1920;}}
     geometry(o){const asset=this.hooks.assets().get(o.source);return asset?StudioOverlay.geometry(o,asset):null;}
+    posedGeometry(o,time=this.hooks.time()){
+      const g=this.geometry(o),pose=StudioAnimation.overlayPose(o,time);
+      return g&&pose&&pose.alpha*o.opacity>.001?{...g,x:g.x+pose.x*1080,y:g.y+pose.y*1920,width:g.width*pose.scale,height:g.height*pose.scale}:null;
+    }
     active(o){const t=this.hooks.time();return t>=o.start&&t<o.start+o.duration;}
     world(g,o,x,y){const a=o.rotation*Math.PI/180;return {x:g.x+x*Math.cos(a)-y*Math.sin(a),y:g.y+x*Math.sin(a)+y*Math.cos(a)};}
     draw(ctx,o,time,editing){
       if(time<o.start||time>=o.start+o.duration)return;
       const g=this.geometry(o),image=this.hooks.images().get(o.source);if(!g||!image)return;
-      const pose=editing?{x:0,y:0,alpha:1,scale:1}:StudioAnimation.overlayPose(o,time);if(!pose)return;
+      const pose=StudioAnimation.overlayPose(o,time);if(!pose)return;
       ctx.save();ctx.globalAlpha=o.opacity*pose.alpha;ctx.translate(g.x+pose.x*1080,g.y+pose.y*1920);ctx.rotate(o.rotation*Math.PI/180);
       ctx.drawImage(image,-g.width*pose.scale/2,-g.height*pose.scale/2,g.width*pose.scale,g.height*pose.scale);ctx.restore();
-      if(editing&&o.id===this.selected){
-        ctx.save();ctx.translate(g.x,g.y);ctx.rotate(o.rotation*Math.PI/180);ctx.strokeStyle='#e8bd78';ctx.lineWidth=5;
-        ctx.strokeRect(-g.width/2,-g.height/2,g.width,g.height);ctx.fillStyle='#e8bd78';ctx.fillRect(g.width/2-14,g.height/2-14,28,28);
-        ctx.beginPath();ctx.moveTo(0,-g.height/2);ctx.lineTo(0,-g.height/2-60);ctx.stroke();ctx.beginPath();ctx.arc(0,-g.height/2-60,16,0,Math.PI*2);ctx.fill();ctx.restore();
+      const shown=this.posedGeometry(o,time);
+      if(editing&&o.id===this.selected&&shown){
+        ctx.save();ctx.translate(shown.x,shown.y);ctx.rotate(o.rotation*Math.PI/180);ctx.strokeStyle='#e8bd78';ctx.lineWidth=5;
+        ctx.strokeRect(-shown.width/2,-shown.height/2,shown.width,shown.height);ctx.fillStyle='#e8bd78';ctx.fillRect(shown.width/2-14,shown.height/2-14,28,28);
+        ctx.beginPath();ctx.moveTo(0,-shown.height/2);ctx.lineTo(0,-shown.height/2-60);ctx.stroke();ctx.beginPath();ctx.arc(0,-shown.height/2-60,16,0,Math.PI*2);ctx.fill();ctx.restore();
       }
     }
     down(pos,minLayer=-1){
       const selected=this.item();
       if(selected&&this.active(selected)){
-        const g=this.geometry(selected);if(g){
+        const g=this.posedGeometry(selected);if(g){
           for(const [mode,point] of [['scale',this.world(g,selected,g.width/2,g.height/2)],['rotate',this.world(g,selected,0,-g.height/2-60)]]){
             if(Math.hypot(pos.x-point.x,pos.y-point.y)<34){this.drag={mode,id:selected.id,g,scale:selected.scale,rotation:selected.rotation,
               distance:Math.hypot(pos.x-g.x,pos.y-g.y),angle:Math.atan2(pos.y-g.y,pos.x-g.x)};return true;}
@@ -79,9 +84,9 @@
         }
       }
       for(const o of [...this.hooks.overlays()].reverse().filter(o=>this.active(o)&&o.layer>=minLayer).sort((a,b)=>b.layer-a.layer)){
-        const g=this.geometry(o);if(!g)continue;const a=-o.rotation*Math.PI/180,dx=pos.x-g.x,dy=pos.y-g.y;
+        const g=this.posedGeometry(o);if(!g)continue;const a=-o.rotation*Math.PI/180,dx=pos.x-g.x,dy=pos.y-g.y;
         if(Math.abs(dx*Math.cos(a)-dy*Math.sin(a))<=g.width/2&&Math.abs(dx*Math.sin(a)+dy*Math.cos(a))<=g.height/2){
-          this.select(o.id);this.drag={mode:'move',id:o.id,dx:pos.x-g.x,dy:pos.y-g.y};return true;
+          const base=this.geometry(o);this.select(o.id);this.drag={mode:'move',id:o.id,dx:pos.x-base.x,dy:pos.y-base.y};return true;
         }
       }
       return false;

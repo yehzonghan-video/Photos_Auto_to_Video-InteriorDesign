@@ -8,6 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
+EDITOR_UI_VERSION = 2
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -48,6 +49,18 @@ def consume_editor_event(state, event):
     if event.get('action')=='inspect_guard':
         from .protection import receive_probe
         receive_probe(state,event)
+        return
+    if event.get('action') == 'replace_photo':
+        # 只請求開啟目前來源照片的原生選檔視窗；選取本身不是內容變更。
+        if (event.get('session') == state['editor_session']
+                and event.get('base_revision') == state['revision']
+                and not state.get('guard_request') and not state.get('editor_busy')
+                and not state.get('pending_export')
+                and event.get('photo_id') in {p.id for p in state['photos']}):
+            state['replacement_request'] = dict(id=nonce, photo_id=event['photo_id'])
+        elif event.get('session') == state['editor_session']:
+            state['notice'] = '照片替換請求已過期或專案正在處理中，草稿保留；請稍後重新選取照片。'
+            state['notice_error'] = True
         return
     request = state.get("pending_export")
     if (event.get("action") == "cancel_export" and event.get("session") == state["editor_session"]

@@ -219,7 +219,7 @@ def install_project(state, project):
                  editor_assets={}, editor_response=None, editor_seen=[], pending_export=None, editor_busy=False,
                  project_archive=None, ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[],
                  ai_queue=[], ai_delivered={}, ai_pending={}, asset_warnings=[])
-    for key in ('studio_editor','render_job','project_save_job','ai_chosen','ai_consent','ai_force','ai_refresh_requested'):
+    for key in ('studio_editor','render_job','project_save_job','ai_chosen','ai_consent','ai_force','ai_refresh_requested','replacement_request','photo_receipts'):
         state.pop(key, None)
     for key in ('uploader_epoch','png_epoch','music_epoch','project_import_epoch'):
         state[key] = state.get(key,0)+1
