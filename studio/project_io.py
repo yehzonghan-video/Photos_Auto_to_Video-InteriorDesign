@@ -212,6 +212,8 @@ def _load_archive(data):
 def install_project(state, project):
     """驗證成功後一次開啟新工作區；保留登入與AI用量，舊前端事件失效。"""
     from .versioning import reset_versions,refresh
+    from .output_jobs import release
+    release(state)
     reset_versions(state)
     state.update({key:project[key] for key in (*PROJECT_KEYS,'photos','overlay_assets','music_asset','template_mode','video_width')})
     state.update(editor_session=uuid.uuid4().hex, revision=state.get('revision',0)+1,

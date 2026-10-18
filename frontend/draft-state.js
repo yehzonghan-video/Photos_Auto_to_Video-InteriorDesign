@@ -44,6 +44,11 @@
       }
       if(revision<this.revision)return {stale:true};
       const matched=this.pending&&response?.nonce===this.pending.nonce;
+      if(matched&&response.ok&&this.pending.output&&
+          (response.content_version!==this.pending.version||response.seq!==this.pending.seq||response.operation_id!==this.pending.nonce)){
+        this.pending=null;this.dirty=true;
+        return {matched:true,success:false,error:'同步版本確認不符，草稿保留，請重新按原輸出按鈕。'};
+      }
       const success=matched&&response.ok;
       const newer=matched&&this.seq!==this.pending.seq;
       if((success&&!newer)||(!this.dirty&&!this.pending)||this.cover===null)this.cover=clone(cover);

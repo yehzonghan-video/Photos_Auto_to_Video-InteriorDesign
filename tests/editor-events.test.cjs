@@ -17,7 +17,7 @@ const StudioMusic=require('../frontend/music.js');
 const StudioLabelTiming=require('../frontend/label-timing.js');
 const StudioVersion=require('../frontend/content-version.js');
 function environment(storage=new Map()) {
-  const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
+  const elements=new Map(),messages=[],listeners={},frames=new Map(),downloads=[];let serial=0,draws=0;
   function element(tag='div') {
     const handlers={},ctx={font:'46px sans-serif',measureText:text=>({width:text.length*46}),
       roundRect(){},beginPath(){},fill(){},fillText(){},strokeText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
@@ -28,13 +28,15 @@ function environment(storage=new Map()) {
       querySelector:()=>null,
       replaceChildren(){this.children=[];},append(...children){this.children.push(...children);},
       addEventListener(name,fn){handlers[name]=fn;},removeAttribute(){},setPointerCapture(){},
+      click(){if(this.tagName==='a')downloads.push({href:this.href,name:this.download});else this.onclick?.();},remove(){},
       dispatch(name,data={}){handlers[name]?.({preventDefault(){},pointerId:1,...data});}};
   }
   const document={activeElement:null,hidden:false,getElementById(id){if(!elements.has(id))elements.set(id,element(id==='canvas'?'canvas':'div'));return elements.get(id);},
-    createElement:element,querySelector:()=>element(),querySelectorAll:()=>[...elements.values()],addEventListener(){},removeEventListener(){}};
+    body:element('body'),createElement:element,querySelector:()=>element(),querySelectorAll:()=>[...elements.values()],addEventListener(){},removeEventListener(){}};
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
+    StudioOutput:require('../frontend/output-controller.js'),
     StudioDraft:{DraftState,metadata},StudioVersion,StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
@@ -53,7 +55,7 @@ function environment(storage=new Map()) {
     {id:'p2',name:'second',image:'image2',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'}];
   async function receive(extra={}){await listeners.message({source:window.parent,data:{type:'streamlit:render',args:{project:{photos:rows()},session:'session',revision:1,busy:false,...extra}}});}
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
-  return {elements,changes,receive,rows,context,storage,frames,get draws(){return draws;}};
+  return {elements,changes,receive,rows,context,storage,frames,downloads,get draws(){return draws;}};
 }
 test('BGM音量與淡出連續修改不送Python，rerun／重建保留，輸出批次使用最新音樂設定',async()=>{
   const env=environment(),m={...StudioMusic.newMusic(),source:'audio'},project={photos:env.rows(),music:m,music_asset:{id:'audio',name:'tone.wav',duration:2,src:'data:audio/wav;base64,mock'}};
@@ -413,7 +415,7 @@ test('儲存專案一次同步未套用的標籤／PNG／封面／正文，等�
   get('assetLibrary').children[0].onclick();get('png_rotation').value='33';get('png_rotation').oninput();
   get('bodyX').value='44';get('bodyX').oninput();
   assert.equal(env.changes().length,0);
-  const promise=get('saveProject').onclick();assert.equal(env.changes().length,1);assert.equal(get('saveProject').disabled,true);
+  const promise=vm.runInContext("synchronize('save_project')",env.context);assert.equal(env.changes().length,1);assert.ok(vm.runInContext('draft.pending',env.context));
   const event=env.changes()[0].value;
   assert.equal(event.action,'save_project');assert.equal(event.photos[0].labels[0].text,'尚未套用的文字');
   assert.equal(event.overlays[0].rotation,33);assert.equal(event.cover.body.x,.44);
@@ -422,7 +424,7 @@ test('儲存專案一次同步未套用的標籤／PNG／封面／正文，等�
   const rows=env.rows();rows.forEach((r,i)=>r.labels=event.photos[i].labels);
   await env.receive({project:{photos:rows,cover:event.cover,assets,overlays:event.overlays},revision:2,response:{nonce:event.nonce,ok:true}});await promise;
   assert.equal(vm.runInContext('photos[0].labels[0].text',env.context),'儲存後繼續編輯');assert.equal(env.changes().length,1);
-  assert.equal(get('saveProject').disabled,false);
+  assert.equal(vm.runInContext('draft.pending',env.context),null);
   // 匯入即切換新session：即使相同照片ID，仍由匯入內容取代舊本地草稿。
   rows[0].labels[0]={...event.photos[0].labels[0],text:'匯入的專案文字',start:.2};
   await env.receive({session:'new-import-session',project:{photos:rows,cover:event.cover,assets,overlays:event.overlays},revision:3});
@@ -449,7 +451,7 @@ test('LOGO時間軸拖移與左右裁切均本地，開關封面平移，重建�
   get('coverEnabled').checked=true;get('coverEnabled').onchange();get('photos').children[2].onclick();get('photos').children[1].onclick();
   const rebuilt=environment(env.storage);await rebuilt.receive({project,revision:2});
   assert.ok(Math.abs(vm.runInContext('draft.cover.body.logo_start',rebuilt.context)-2.3)<1e-8);
-  const promise=rebuilt.elements.get('saveProject').onclick(),event=rebuilt.changes()[0].value;
+  const promise=vm.runInContext("synchronize('save_project')",rebuilt.context),event=rebuilt.changes()[0].value;
   assert.equal(event.action,'save_project');assert.equal(event.cover.body.logo_auto_timing,false);
   const rows=rebuilt.rows();await rebuilt.receive({project:{...project,photos:rows,cover:event.cover},revision:3,response:{nonce:event.nonce,ok:true}});await promise;
   rebuilt.elements.get('bodyLogo').checked=false;rebuilt.elements.get('bodyLogo').onchange();
@@ -586,4 +588,41 @@ test('替換媒體回覆不覆蓋人工定位，AI與對比引用標記待確認
   assert.equal(run('draft.comparisons[0].labels[0].needs_review'),true);
   await env.receive({project:{photos:rows,template_id:'compare',comparisons:[clip]},revision:1});
   assert.equal(run('photos[0].content_hash'),'replacement');assert.equal(env.changes().length,0);
+});
+
+test('一鍵ZIP固定A、同步與背景處理仍可改B；精確ACK才啟動，完成／rerun／重建只下載一次',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id),run=s=>vm.runInContext(s,env.context);
+  const context={schema:JSON.parse(fs.readFileSync('frontend/content-schema.json','utf8')),photos:{p1:'hash',p2:'hash2'},assets:[],music:null,width:1080,engine:'renderer'};
+  const project={photos:env.rows()},initial=StudioVersion.digest(StudioVersion.document(project,context)),versions={context,synced:initial};
+  await env.receive({project,versions});get('addLabel').onclick();get('text').value='客廳A';get('text').oninput();
+  const pending=env.context.window.StudioOutputBridge.capture('zip',1080),sent=env.changes()[0].value;
+  assert.equal(sent.photos[0].labels[0].text,'客廳A');assert.equal(sent.output_protocol,3);
+  get('text').value='客廳B';get('text').oninput();const latest=run('draft.contentVersion');
+  const accepted={photos:env.rows().map((row,i)=>({...row,...sent.photos[i]}))};
+  await env.receive({project:accepted,versions:{...versions,synced:sent.content_version},revision:2,
+    response:{nonce:sent.nonce,operation_id:sent.nonce,ok:true,seq:sent.seq,content_version:sent.content_version},
+    output_status:{id:sent.nonce,phase:'prepared'}});await pending;
+  assert.equal(env.changes()[1].value.action,'start_output');assert.equal(env.changes()[1].value.content_version,sent.content_version);
+  assert.equal(run('draft.rows[0].labels[0].text'),'客廳B');assert.equal(run('canEdit()'),true);
+  const finished={project:accepted,versions:{...versions,synced:sent.content_version,zip:sent.content_version},revision:2,busy:false,
+    output_status:{id:sent.nonce,phase:'done'},zip_delivery:{request_id:sent.nonce,content_version:sent.content_version,url:'/app/static/downloads/'+('a'.repeat(64))+'.zip',filename:'project.zip',expires_at:9999999999}};
+  await env.receive(finished);assert.equal(env.downloads.length,1);assert.equal(run('draft.contentVersion'),latest);
+  assert.equal(env.changes().at(-1).value.action,'zip_download_requested');
+  await env.receive(finished);assert.equal(env.downloads.length,1);
+  const restored=environment(env.storage);await restored.receive(finished);assert.equal(restored.downloads.length,0);
+  assert.equal(vm.runInContext('draft.rows[0].labels[0].text',restored.context),'客廳B');
+});
+
+test('輸出收到錯seq ACK拒絕且保留草稿，不使用舊資料開始渲染',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id);
+  const context={schema:JSON.parse(fs.readFileSync('frontend/content-schema.json','utf8')),photos:{p1:'hash',p2:'hash2'},assets:[],music:null,width:1080,engine:'renderer'};
+  const project={photos:env.rows()},initial=StudioVersion.digest(StudioVersion.document(project,context));
+  await env.receive({project,versions:{context,synced:initial}});get('addLabel').onclick();
+  const pending=env.context.window.StudioOutputBridge.capture('mp4',1080).catch(error=>error),sent=env.changes()[0].value;
+  get('text').value='不能遺失';get('text').oninput();
+  await env.receive({project:{photos:env.rows().map((row,i)=>({...row,...sent.photos[i]}))},versions:{context,synced:sent.content_version},revision:2,
+    response:{nonce:sent.nonce,operation_id:sent.nonce,ok:true,seq:sent.seq+1,content_version:sent.content_version},output_status:{id:sent.nonce,phase:'prepared'}});
+  assert.ok((await pending).message.includes('確認不符'));
+  assert.equal(env.changes().some(e=>e.value.action==='start_output'),false);
+  assert.equal(vm.runInContext('draft.rows[0].labels[0].text',env.context),'不能遺失');
 });

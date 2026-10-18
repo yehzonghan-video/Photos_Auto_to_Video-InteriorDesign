@@ -192,7 +192,7 @@ class ProjectIOTests(unittest.TestCase):
         saved=app.session_state.project_archive['data'];restored=load_archive(saved)
         self.assertEqual(restored['photos'][0].labels[0]['text'],'儲存時最新內容')
         self.assertEqual(restored['photos'][0].labels[0]['x'],.66)
-        self.assertTrue(any(e.proto.label=='下載專案檔 ZIP（含素材）' for e in app.get('download_button')))
+        self.assertTrue(any(e.proto.label=='備用：重新下載已產生的 ZIP' for e in app.get('download_button')))
         app.run();self.assertFalse(app.exception);self.assertEqual(app.session_state.project_archive['data'],saved)
 
     def test_streamlit_import_restores_template_width_and_rejects_bad_file_atomically(self):

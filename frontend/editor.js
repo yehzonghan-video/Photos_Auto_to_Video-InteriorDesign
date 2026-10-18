@@ -17,6 +17,7 @@ const waiters=new Map();
 let photoDragId=null, editRaf=0, serverBusy=false, preparing=false;
 let lastRevision=null, recordingFailure=null, activeExportRequest=null, receivedSession=null, storageFailed=false;
 let guardLocked=false,lastGuardRequest=null;
+let sessionLost=false;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const isCompare=()=>draft.template==='compare';
 const bodySequence=()=>isCompare()?draft.comparisons:photos;
@@ -60,28 +61,27 @@ function validProject() {
 function persistDraft() {
   if(!draft.session)return;
   draft.coverSeconds=StudioCover.duration(draft.cover);
-  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea,bodySelected,logoSelected})));storageFailed=false;}
-  catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；請在離開此頁前套用變更。',true);}
+  try {sessionStorage.setItem(storageKey,JSON.stringify(draft.persisted({selectedPhoto,selectedLabel,selectedOverlay:pngEditor.selected,time,showSafeArea,bodySelected,logoSelected,outputs:outputs.persisted()})));storageFailed=false;}
+  catch(error){storageFailed=true;status('此瀏覽器無法暫存草稿；離開前請下載ZIP備份。',true);}
 }
 window.addEventListener('pagehide',()=>{persistDraft();musicPlayer.stop();});
 function syncStatus() {
   if(guardLocked)status('正在確認工作區操作；按「取消操作」可返回目前草稿。');
-  else if(serverBusy)status('正在輸出已套用的影片設定…');
+  else if(outputs.busy())status(outputs.status().message);
   else if(preparing)status('輸出前正在套用最新設定…');
-  else if(draft.pending)status('正在套用變更，可繼續編輯…');
-  else status(draft.dirty?'有未套用變更；切換照片會保留，輸出前會自動套用。':'編輯已同步到伺服器；MP4與ZIP是否最新，請看各自版本狀態。');
-  if(storageFailed){$('status').textContent+=' 此瀏覽器無法暫存草稿，離開前請先套用。';$('status').classList.add('error');}
+  else if(draft.pending)status('正在同步草稿，可繼續編輯…');
+  else status(draft.dirty?'草稿已暫存；下載ZIP或輸出影片會自動準備。':'草稿已同步；同步不等於備份。');
+  if(sessionLost)$('status').textContent+=' 工作階段已重建，請重新上傳素材或匯入ZIP；分頁暫存不是永久保存。';
+  if(storageFailed){$('status').textContent+=' 此瀏覽器無法暫存草稿，離開前請下載ZIP。';$('status').classList.add('error');}
   $('applyChanges').disabled=!draft.dirty||!!draft.pending||recording||preparing||serverBusy;
-  $('saveProject').disabled=!!draft.pending||recording||preparing||serverBusy;
   showVersions();
 }
 function showVersions(){
   const versions=draft.versions,current=draft.contentVersion;if(!versions||!current){$('versionStatus').textContent='';return;}
-  const short=v=>v?v.slice(4,16):'尚無／來源未知';
   const mp4=versions.mp4?(versions.mp4===current?'與草稿相同':'舊版本，需要重新輸出'):'尚無可確認版本的成片';
   const zip=versions.zip?(versions.zip===current?'與草稿相同':'舊版本，非目前草稿備份'):'尚未產生';
-  $('versionStatus').textContent=`草稿 ${short(current)} · 已同步 ${short(versions.synced)}。MP4 ${short(versions.mp4)}：${mp4}。ZIP ${short(versions.zip)}：${zip}。`+
-    (versions.backup===current?'已有同版本ZIP備份（由你確認或匯入）。':'目前草稿尚無已確認的同版本ZIP備份；此分頁暫存不等於備份。');
+  $('versionStatus').textContent=`${current===versions.synced?'草稿已同步':'草稿已暫存'} · MP4：${mp4} · ZIP：${zip} · `+
+    (versions.backup===current?'此版本已確認備份。':'目前修改尚未備份。');
 }
 function markEdited(persist=true) {
   const priorPhoto=selectedPhoto;
@@ -107,15 +107,17 @@ function markEdited(persist=true) {
   syncStatus();timeline.draw();
 }
 function queueDraw(){if(!editRaf)editRaf=requestAnimationFrame(()=>{editRaf=0;info();draw();});}
-function synchronize(action='apply',request=null) {
+function synchronize(action='apply',request=null,width=null) {
   if(!validProject())return Promise.reject(new Error('請先修正標籤文字與時間設定。'));
   if(draft.pending)return Promise.reject(new Error('正在套用上一批變更，請稍候再試。'));
-  const event=draft.snapshot(crypto.randomUUID(),action,request);persistDraft();syncStatus();
+  const event=draft.snapshot(width===null?crypto.randomUUID():request,action,request);
+  if(width!==null){event.output_protocol=3;event.width=width;draft.pending.output=true;draft.pending.version=event.content_version;}
+  persistDraft();syncStatus();
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{
       waiters.delete(event.nonce);
       if(draft.pending?.nonce===event.nonce){draft.pending=null;draft.dirty=true;persistDraft();syncStatus();}
-      reject(new Error('同步逾時，草稿已保留；請再次按「套用變更」。'));
+      reject(new Error('同步逾時，草稿已保留；請重新按下載ZIP或輸出影片。'));
     },20000);
     waiters.set(event.nonce,{resolve,reject,timer});
     post('streamlit:setComponentValue',{value:event,dataType:'json'});
@@ -142,6 +144,8 @@ window.addEventListener('message', async event => {
     guideKind=null;
     if(receivedSession!==args.session) {
       try {const saved=JSON.parse(sessionStorage.getItem(storageKey)||'null');
+        if(saved?.session&&saved.session!==args.session)sessionLost=true;
+        outputs.restore(saved?.session===args.session?saved.selection?.outputs:null);
         if(draft.restore(saved,args.session)){
           selectedPhoto=saved.selection?.selectedPhoto;selectedLabel=saved.selection?.selectedLabel;
           pngEditor.selected=saved.selection?.selectedOverlay||null;time=saved.selection?.time||0;
@@ -217,7 +221,7 @@ window.addEventListener('message', async event => {
     }
     lastRevision=args.revision;
     guardLocked=!!args.guard_request;
-    serverBusy=!!args.busy||guardLocked;
+    serverBusy=guardLocked; // 背景輸出使用固定快照，不鎖住文字／PNG／時間軸。
     photos=draft.rows;
     draft.configureVersions(args.versions);
     if(!recording&&!preparing&&!serverBusy&&!draft.pending) {
@@ -238,11 +242,14 @@ window.addEventListener('message', async event => {
     }
     if(!args.guard_request)lastGuardRequest=null;
     if(result.matched) {
+      if(result.success)outputs.ack(args.response);else if(outputs.intent?.id===args.response.nonce)outputs.fail(result.error);
       const waiter=waiters.get(args.response.nonce);
       if(waiter){clearTimeout(waiter.timer);waiters.delete(args.response.nonce);
         if(result.success)waiter.resolve();else waiter.reject(new Error(result.error));}
       if(result.error)status(result.error+' 草稿仍保留在此頁。',true);
     }
+    outputs.receive(args.output_status,args.zip_delivery,args.response);
+    syncStatus();persistDraft();
     if(args.export_request&&args.export_request!==activeExportRequest&&!draft.pending) {
       activeExportRequest=args.export_request;preparing=true;lockEditor(true);
       synchronize('export',args.export_request).catch(error=>{
@@ -544,9 +551,6 @@ $('deletePhoto').onclick=()=>{if(isCompare()){const i=draft.comparisons.findInde
   else{draft.deleted.push(selectedPhoto);photos=photos.filter(p=>p.id!==selectedPhoto);}
   selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;markEdited();buildPhotos();buildLabels();fillForm();draw();comparisonEditor.library();};
 $('applyChanges').onclick=()=>synchronize().catch(error=>status(error.message,true));
-$('saveProject').onclick=()=>synchronize('save_project')
-  .then(()=>status('專案檔已準備完成，請在編輯器下方按「下載專案檔 ZIP（含素材）」。'))
-  .catch(error=>status(error.message,true));
 function movePhoto(delta) {
   const rows=bodySequence(),index=rows.findIndex(p=>p.id===selectedPhoto),next=index+delta;if(index<0||next<0||next>=rows.length)return;
   [rows[index],rows[next]]=[rows[next],rows[index]];buildPhotos();markEdited();
@@ -568,7 +572,7 @@ function clearBrowserResult() {
 function lockEditor(locked) {
   if(locked&&dragging){dragging=null;persistDraft();}
   for(const element of document.querySelectorAll('button,input,select,textarea'))element.disabled=locked;
-  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!draft.dirty||!!draft.pending;$('saveProject').disabled=!!draft.pending;}
+  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!draft.dirty||!!draft.pending;}
 }
 $('browserExport').onclick=async()=>{
   if(!bodySequence().length){status('請先加入照片或新增一組前後配對。',true);return;}
@@ -648,4 +652,16 @@ function stack(front){if(recording||preparing||serverBusy)return;const selected=
   const order=all.filter(o=>o!==selected);if(front)order.push(selected);else order.unshift(selected);
   order.forEach((o,i)=>o.layer=i);markEdited();fillForm();draw();}
 $('bringFront').onclick=()=>stack(true);$('sendBack').onclick=()=>stack(false);
+const outputs=new StudioOutput.OutputController({uuid:()=>crypto.randomUUID(),pending:()=>!!draft.pending,
+  seq:()=>draft.seq,version:()=>draft.currentVersion(),current:()=>draft.contentVersion,persist:persistDraft,sync:synchronize,
+  post:value=>post('streamlit:setComponentValue',{value:{...value,session:draft.session},dataType:'json'}),
+  download:delivery=>{
+    if(!/^\/[A-Za-z0-9_./-]*app\/static\/downloads\/[0-9a-f]{64}\.zip$/.test(delivery.url))throw new Error('下載網址不正確。');
+    const a=document.createElement('a');a.href=delivery.url;a.download=delivery.filename;document.body.append(a);a.click();a.remove();
+  }});
+window.StudioOutputBridge={session:()=>draft.session,status:()=>outputs.status(),capture:(kind,width)=>{
+  if(guardLocked||recording||preparing||!['zip','mp4'].includes(kind))return Promise.reject(new Error('目前無法輸出，請稍候。'));
+  if(draft.versionContext&&draft.versionContext.width!==width)return Promise.reject(new Error('解析度設定尚未更新，請稍候再試。'));
+  return outputs.request(kind,width);
+},downloadRequested:()=>{const d=outputs.delivery;if(d)post('streamlit:setComponentValue',{value:{action:'zip_download_requested',session:draft.session,nonce:crypto.randomUUID(),operation_id:d.request_id,content_version:d.content_version},dataType:'json'});}};
 post('streamlit:componentReady',{apiVersion:1});resize();

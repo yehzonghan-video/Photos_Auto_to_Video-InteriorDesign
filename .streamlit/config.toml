@@ -8,6 +8,7 @@ font = "sans serif"
 [server]
 maxUploadSize = 200
 headless = true
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false

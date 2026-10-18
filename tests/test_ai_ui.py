@@ -92,7 +92,8 @@ class AIUITests(unittest.TestCase):
                 next(b for b in app.button if b.label=='AI 分析並加入標籤').click().run()
                 self.assertFalse(app.exception);self.assertEqual(provider.call_count-call_count,3)
                 self.assertTrue(any('429' in e.value for e in app.error))
-                self.assertFalse(next(b for b in app.button if b.label=='輸出 H.264 MP4').disabled)
+                from tests.app_helpers import output_controls
+                self.assertFalse(output_controls(app)['locked'])
 
 
 if __name__=='__main__':unittest.main()

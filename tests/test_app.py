@@ -30,7 +30,8 @@ class AppTests(unittest.TestCase):
         self.assertEqual(app.session_state.revision,revision)
         self.assertEqual(len(app.session_state.photos[0].labels),10)
         next(s for s in app.selectbox if s.label == "影片解析度").select(360).run()
-        next(b for b in app.button if b.label == "輸出 H.264 MP4").click().run()
+        from tests.app_helpers import request_legacy_export
+        request_legacy_export(app)
         self.assertIsNone(app.session_state.output)
         request=app.session_state.pending_export
         latest=copy.deepcopy([photo.metadata() for photo in app.session_state.photos])

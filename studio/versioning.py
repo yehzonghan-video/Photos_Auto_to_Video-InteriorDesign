@@ -139,6 +139,6 @@ def complete_export(state, data, seconds, version):
 
 def reset_versions(state):
     for key in ('content_version','zip_version','mp4_version','backup_confirmed_version',
-                'zip_download_requested_version','frontend_version','frontend_seq','_version_media_cache',
+                'zip_download_requested_version','zip_download_request_id','frontend_version','frontend_seq','_version_media_cache',
                 'guard_request','guard_approved','guard_import_project'):
         state.pop(key,None)

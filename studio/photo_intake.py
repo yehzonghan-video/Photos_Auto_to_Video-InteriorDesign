@@ -33,7 +33,7 @@ def append_photos(state, files, role, event_id):
     for file in files:
         try:
             if len(proposed) >= MAX_PHOTOS:
-                raise ValueError(f'最多 {MAX_PHOTOS} 張來源照片（工作階段處理上限）。若剛刪除照片，請先套用變更釋放名額，再選檔。')
+                raise ValueError(f'最多 {MAX_PHOTOS} 張來源照片（工作階段處理上限）。若剛刪除照片，請在「進階／同步恢復」按「同步草稿」釋放名額，再選檔。')
             fresh = load_photo(file.name, file.getvalue())
             fresh.role = role
             if sum(p.duration for p in proposed) + fresh.duration > MAX_TOTAL_SECONDS:

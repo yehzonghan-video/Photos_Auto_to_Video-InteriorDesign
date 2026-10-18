@@ -205,7 +205,8 @@ class ComparisonTests(unittest.TestCase):
         clips,_=auto_pair(photos);clips=clips[:1];clips[0].update(duration=1,before_time=.2,transition_time=.3)
         for l in clips[0]['labels']:l.update(start=0,end=1,enter=.1)
         next(s for s in app.selectbox if s.label=='影片解析度').select(360).run()
-        next(b for b in app.button if b.label=='輸出 H.264 MP4').click().run();request=app.session_state.pending_export
+        from tests.app_helpers import request_legacy_export
+        request_legacy_export(app);request=app.session_state.pending_export
         app.session_state['studio_editor']=dict(nonce='test',session=app.session_state.editor_session,base_revision=app.session_state.revision,
              action='export',request=request['id'],template_id='compare',photos=[p.metadata() for p in photos],comparisons=clips)
         app.run();self.assertFalse(app.exception);self.assertGreater(len(app.session_state.output),1000)

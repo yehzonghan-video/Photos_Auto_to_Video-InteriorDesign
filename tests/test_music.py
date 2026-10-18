@@ -135,7 +135,8 @@ class MusicTests(unittest.TestCase):
         app.run();self.assertFalse(app.exception)
         self.assertEqual(app.session_state.project_payload['music']['fade_out'],1)
         next(s for s in app.selectbox if s.label=='影片解析度').select(360).run()
-        next(b for b in app.button if b.label=='輸出 H.264 MP4').click().run()
+        from tests.app_helpers import request_legacy_export
+        request_legacy_export(app)
         rows=copy.deepcopy([p.metadata() for p in app.session_state.photos[:1]])
         rows[0]['duration']=2;rows[0]['labels']=[]
         request=app.session_state.pending_export

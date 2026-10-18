@@ -38,7 +38,7 @@ def import_panel(state):
         st.caption('匯入會取代目前工作區；需要保留現有內容時，請先儲存專案。')
         source = st.file_uploader('選擇工作室專案檔', type=['zip'], max_upload_size=MAX_ARCHIVE_MB,
                                   key=f"project_import_{state['project_import_epoch']}")
-        if st.button('匯入並開啟專案', disabled=source is None or state['editor_busy'] or state['pending_export'] is not None or bool(state.get('guard_request')),
+        if st.button('匯入並開啟專案', disabled=source is None or state['editor_busy'] or state['pending_export'] is not None or bool(state.get('prepared_output')) or bool(state.get('guard_request')),
                      use_container_width=True):
             try:
                 with st.spinner('正在驗證並開啟專案…'):
@@ -54,10 +54,11 @@ def download_panel(state):
     saved = state.get('project_archive')
     if saved:
         version=saved.get('content_version')
-        st.download_button('下載專案檔 ZIP（含素材）', data=saved['data'], file_name=saved['filename'],
-                           mime='application/zip', type='primary', on_click=download_requested,args=(state,version),key='download_project')
-        st.caption(f"專案檔 {len(saved['data'])/1024/1024:.2f} MB · 這是按下儲存時的快照，後續修改請再次儲存。未包含MP4、密碼或API金鑰。")
-        st.caption(f"ZIP版本：{short(version)}。是否符合尚未套用的草稿，請看編輯器的即時版本狀態。")
+        st.download_button('備用：重新下載已產生的 ZIP', data=saved['data'], file_name=saved['filename'],
+                           mime='application/zip', on_click=download_requested,args=(state,version),key='download_project')
+        st.caption(f"ZIP已準備完成 · {len(saved['data'])/1024/1024:.2f} MB · 固定為按鈕點擊時的快照；後續修改需再次下載。")
+        if saved.get('download_warning'):st.info(saved['download_warning'])
+        st.caption(f"ZIP版本：{short(version)}。是否符合目前草稿，請看編輯器的即時狀態。")
         if version!=state.get('content_version'):st.warning('此ZIP是舊版本，不是目前已同步內容的備份。')
         if version and state.get('zip_download_requested_version')==version:
             st.caption('已提出此版本的下載請求；網站無法確認電腦是否已成功儲存。')
@@ -73,6 +74,7 @@ def short(version):
 def download_requested(state, version):
     if version and (state.get('project_archive') or {}).get('content_version')==version:
         state['zip_download_requested_version']=version
+        state['zip_download_request_id']=state['project_archive'].get('request_id')
 
 
 def confirm_backup(state, version):

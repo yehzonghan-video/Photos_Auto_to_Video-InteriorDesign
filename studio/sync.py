@@ -8,7 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 2
+EDITOR_UI_VERSION = 3
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -50,12 +50,36 @@ def consume_editor_event(state, event):
         from .protection import receive_probe
         receive_probe(state,event)
         return
+    if event.get('action') in ('start_output','zip_download_requested','cancel_output'):
+        if event.get('session')!=state['editor_session'] or state.get('guard_request'):return
+        if event['action']=='cancel_output':
+            prepared=state.get('prepared_output')
+            if prepared and prepared['id']==event.get('operation_id'):
+                state.pop('prepared_output',None)
+                state['output_status']=dict(id=prepared['id'],phase='error',message='同步確認未完成，草稿保留，請重新按原按鈕。')
+            return
+        if event['action']=='zip_download_requested':
+            saved=state.get('project_archive') or {}
+            if event.get('operation_id')==saved.get('request_id') and event.get('content_version')==saved.get('content_version'):
+                from .project_ui import download_requested
+                download_requested(state,saved['content_version'])
+            return
+        if state.get('output_task') or (state.get('output_status') or {}).get('id')==event.get('operation_id') and (state.get('output_status') or {}).get('phase')=='done':return
+        from .output_jobs import start
+        try:start(state,event)
+        except (ValueError,RuntimeError) as exc:
+            # 重送已啟動請求不覆蓋進度；其他失敗保留草稿與先前成果。
+            if (state.get('output_task') or {}).get('id')!=event.get('operation_id'):
+                prepared=state.get('prepared_output')
+                if prepared and prepared['id']==event.get('operation_id'):state.pop('prepared_output',None)
+                state['output_status']=dict(id=event.get('operation_id'),phase='error',message=str(exc))
+        return
     if event.get('action') == 'replace_photo':
         # 只請求開啟目前來源照片的原生選檔視窗；選取本身不是內容變更。
         if (event.get('session') == state['editor_session']
                 and event.get('base_revision') == state['revision']
                 and not state.get('guard_request') and not state.get('editor_busy')
-                and not state.get('pending_export')
+                and not state.get('pending_export') and not state.get('prepared_output')
                 and event.get('photo_id') in {p.id for p in state['photos']}):
             state['replacement_request'] = dict(id=nonce, photo_id=event['photo_id'])
         elif event.get('session') == state['editor_session']:
@@ -63,6 +87,14 @@ def consume_editor_event(state, event):
             state['notice_error'] = True
         return
     request = state.get("pending_export")
+    protocol=event.get('output_protocol')==3 and event.get('action') in ('export','save_project')
+    if event.get('action') in ('export','save_project') and (state.get('prepared_output') or state.get('output_task') or state.get('editor_busy')):
+        state['editor_response']=dict(nonce=nonce,ok=False,message='上一個輸出請求尚未完成，請稍候。');return
+    if protocol:
+        if (event.get('request')!=nonce or event.get('width')!=state.get('video_width',1080)
+                or event.get('width') not in (360,720,1080) or not isinstance(event.get('content_version'),str)):
+            state['editor_response']=dict(nonce=nonce,ok=False,message='輸出設定尚未更新，草稿保留，請重新按原按鈕。');return
+        request=dict(id=nonce,width=event['width'])
     if (event.get("action") == "cancel_export" and event.get("session") == state["editor_session"]
             and request and event.get("request") == request["id"]):
         state["pending_export"] = None
@@ -127,9 +159,13 @@ def consume_editor_event(state, event):
         if not photos:
             state["editor_assets"] = {}
         state["editor_response"] = dict(nonce=nonce, ok=True, seq=event.get("seq"),content_version=accepted_version)
-        if event['action'] == 'save_project':
+        if protocol:
+            from .output_jobs import prepare
+            prepare(state,event,accepted_version)
+            state['editor_response']['operation_id']=nonce
+        elif event['action'] == 'save_project':
             state['project_save_job'] = dict(version=accepted_version,nonce=nonce)
-        if event["action"] == "export":
+        if event["action"] == "export" and not protocol:
             state["render_job"] = dict(width=request["width"], nonce=nonce,
                                        content_version=project_version(state,width=request['width']))
             state["editor_busy"] = True

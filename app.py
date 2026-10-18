@@ -15,13 +15,15 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 2:
+    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 3:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
     from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
     from studio.project_ui import prepare_download, import_panel, download_panel
     from studio import versioning, protection
+    from studio import output_jobs, output_ui
+    from studio.downloads import delivery
     from studio.photo_intake import append_photos, replace_photo, batch_id
     from studio.ai_ui import ai_panel
 except (RuntimeError, ImportError, OSError) as exc:
@@ -88,6 +90,8 @@ if st.session_state.get("editor_protocol") != 4:
 # 新的元件值已在 rerun 前寫入 widget Session State，在回傳元件參數前完成交易。
 versioning.refresh(st.session_state)
 consume_editor_event(st.session_state, st.session_state.get("studio_editor"))
+output_jobs.collect(st.session_state,st.get_option('server.enableStaticServing'),st.get_option('server.baseUrlPath'))
+output_ui.operation_status(st.session_state)
 
 # 舊照片與前端草稿各自只升級一次；手動調整過新時間後不再自動延後。
 from studio.models import delay_label
@@ -105,9 +109,15 @@ def invalidate():
     versioning.refresh(st.session_state)
 
 
+def workspace_guarded():
+    return bool(st.session_state.editor_busy or st.session_state.pending_export is not None
+                or st.session_state.get('prepared_output') or st.session_state.get('guard_request'))
+
+
 def clear_workspace():
     """僅在資料保護流程核准後清空；取消確認不會呼叫。"""
     state=st.session_state
+    output_jobs.release(state)
     versioning.reset_versions(state)
     state.update(photos=[],editor_session=uuid.uuid4().hex,editor_assets={},editor_response=None,
                  editor_seen=[],pending_export=None,editor_busy=False,output=None,output_seconds=None,
@@ -124,7 +134,8 @@ def clear_workspace():
 
 approved=st.session_state.pop('guard_approved',None)
 if approved:
-    if approved=='logout':logout()
+    if approved=='logout':
+        output_jobs.release(st.session_state);logout()
     elif approved=='clear':clear_workspace()
     elif approved=='import':
         from studio.project_io import install_project
@@ -159,7 +170,7 @@ prepare_download(st.session_state)
 
 with st.sidebar:
     st.markdown("### 案例影片工作室")
-    if st.button("登出",use_container_width=True,disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))):
+    if st.button("登出",use_container_width=True,disabled=workspace_guarded()):
         protection.request(st.session_state,'logout');st.rerun()
     st.caption("登出會清除目前工作階段，請先下載影片或專案檔。")
     import_panel(st.session_state)
@@ -169,7 +180,7 @@ with st.sidebar:
     st.divider()
     st.selectbox("影片模板", ["items","compare"], key="template_mode",
                  format_func=lambda key:template_config(key)["name"],
-                 disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request')))
+                 disabled=workspace_guarded())
     if st.session_state.last_template!=st.session_state.template_mode:
         st.session_state.last_template=st.session_state.template_mode;invalidate()
     st.caption("可切換裝修介紹或前後對比；各模板保留自己的片段、標籤與 PNG 草稿。")
@@ -187,7 +198,7 @@ with st.sidebar:
         st.caption("此處只確認目前執行環境，Cloud 部署後仍需重新驗證。")
     st.divider()
     st.caption("照片僅存在目前工作階段記憶體，請儲存專案檔以便下次編輯。使用雲端時，照片會傳至 Streamlit 伺服器。")
-    if st.button("清空目前工作階段", use_container_width=True,disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))):
+    if st.button("清空目前工作階段", use_container_width=True,disabled=workspace_guarded()):
         protection.request(st.session_state,'clear');st.rerun()
 
 st.markdown('<div class="eyebrow">INTERIOR FILM STUDIO</div>', unsafe_allow_html=True)
@@ -205,7 +216,7 @@ if st.session_state.notice:
 
 st.subheader("01　準備案例照片")
 compare_mode=st.session_state.template_mode=="compare"
-workspace_locked=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))
+workspace_locked=workspace_guarded()
 sources=[("before","施工前照片（可一次多張）"),("after","施工後照片（可一次多張）")] if compare_mode else [("general","加入照片（可一次多張）")]
 columns=st.columns([3]*len(sources)+[1])
 for col,(role,title) in zip(columns,sources):
@@ -305,7 +316,7 @@ with st.expander('背景音樂 BGM（預設1秒淡出）', expanded=False):
 
 st.subheader("02　編輯畫面、PNG 與時間軸")
 ai_panel(photos, st.session_state)
-st.caption("所有編輯先保留在此頁，切換照片不會遺失。完成後按「套用變更」；輸出前會自動套用最新設定。")
+st.caption("草稿先暫存在目前分頁；下載ZIP或輸出影片會自動準備，無須先套用。工作階段重啟會失去伺服器素材，請用ZIP備份。")
 try:
     if st.session_state.project_payload is None:
         st.session_state.project_payload = payload(photos, cache=st.session_state.editor_assets,
@@ -319,30 +330,27 @@ try:
            export_request=request["id"] if request else None, busy=st.session_state.editor_busy,
            ai_imports=st.session_state.ai_imports,
            versions=versioning.status(st.session_state),guard_request=st.session_state.get('guard_request'),
+           output_status=st.session_state.get('output_status'),zip_delivery=delivery(st.session_state.get('project_archive'),st.session_state.get('zip_download_request_id')),
            key="studio_editor", default=None)
 except (RuntimeError, OSError) as exc:
     st.error(str(exc))
     st.stop()
 
-download_panel(st.session_state)
-st.caption('保留目前專案：按編輯器上方「儲存專案檔」→「下載專案檔 ZIP（含素材）」；日後從左側「開啟舊專案」匯入。')
-
 st.subheader("03　輸出案例影片")
-st.caption("按輸出後會先套用此頁的最新編輯，再以固定 30 FPS 生成 H.264 MP4。")
+st.caption("按一次即可固定當下最新草稿並自動準備；處理期間可繼續編輯，新的修改不會混入本次成果。")
 options, summary = st.columns([2, 3])
 with options:
     size = st.selectbox("影片解析度", [1080, 720, 360],
                         format_func=lambda w: f"{w} × {w*16//9}" + (" · Full HD" if w == 1080 else " · 較快輸出"),key='video_width',disabled=workspace_locked)
-    render_clicked = st.button("輸出 H.264 MP4", type="primary", use_container_width=True,
-                               disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request')))
+    output_ui.actions(session=st.session_state.editor_session,width=size,
+                      locked=bool(st.session_state.get('guard_request')),key='output_actions',default=None)
 with summary:
     st.markdown(f"**{len(photos)} 張來源照片 · 9:16**")
     st.caption("影片長度以編輯器時間軸為準；輸出前自動套用最新變更。")
     st.caption("免費本機／伺服器渲染。照片不寫入永久目錄；產生的壓縮影片暫存檔會在完成或失敗後清除。")
 
-if render_clicked:
-    st.session_state.pending_export = dict(id=uuid.uuid4().hex, width=size)
-    st.rerun()
+output_ui.progress_panel(st.session_state)
+download_panel(st.session_state)
 
 job = st.session_state.pop("render_job", None)
 if job:
@@ -369,7 +377,7 @@ if job:
 if st.session_state.output:
     version=st.session_state.get('mp4_version')
     st.success(f"最近成功影片已保留，輸出耗時 {st.session_state.output_seconds} 秒。")
-    st.caption(f"MP4版本：{version[4:16] if version else '來源版本未知'}。是否包含尚未套用的修改，請看編輯器即時版本狀態。")
+    st.caption(f"MP4版本：{version[4:16] if version else '來源版本未知'}。是否包含最新修改，請看編輯器即時狀態。")
     if version!=st.session_state.content_version:st.warning('這是較舊或來源版本未知的MP4，不包含目前所有修改；重新輸出成功後才會替換。')
     download, preview = st.columns([1, 2])
     with download:

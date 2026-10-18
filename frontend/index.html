@@ -4,6 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>案例影片編輯器</title>
 <link rel="stylesheet" href="style.css">
+<script src="output-controller.js"></script>
 </head>
 <body>
 <section class="studio">
@@ -13,7 +14,8 @@
     <div class="row"><label class="field">新增配對：施工前<select id="newBefore"></select></label><label class="field">施工後<select id="newAfter"></select></label><button id="addPair">新增配對</button></div>
     <p id="pairSummary" class="hint"></p>
   </section>
-  <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span><button id="saveProject">儲存專案檔</button><button id="applyChanges" class="primary">套用變更</button></div>
+  <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span></div>
+  <details class="asset-section"><summary>進階／同步恢復</summary><button id="applyChanges">同步草稿（疑難排解）</button><p class="hint">一般下載ZIP與輸出影片會自動準備，無須先同步；前端刪除來源後需釋放名額時也可使用。</p></details>
   <div id="photos" class="photos" aria-label="照片播放順序"></div>
   <p id="versionStatus" role="status" class="hint" style="margin:0;padding:0 18px 12px"></p>
   <details class="asset-section" open><summary>PNG 素材庫 · 點選加入全片時間軸</summary><div id="assetLibrary" class="asset-library"></div><p class="hint">自己的透明 PNG 請使用上方「上傳 PNG 素材」。圖層可跨照片，所有拖曳先存在此頁。</p></details>
@@ -143,7 +145,7 @@
         <p class="hint">拖曳 PNG 移動，拖右下角方點縮放，拖上方圓點旋轉；時間使用全片秒數。</p>
       </div>
       <div class="row"><button id="bringFront">移到最上層</button><button id="sendBack">移到最下層</button></div>
-      <p id="status" role="status" class="status">編輯暫存在此頁；完成後按「套用變更」。輸出前會自動套用。</p>
+      <p id="status" role="status" class="status">草稿暫存在目前分頁；下載ZIP或輸出影片會自動準備。</p>
       <p id="aiStatus" role="status" class="hint"></p>
     </aside>
   </div>
