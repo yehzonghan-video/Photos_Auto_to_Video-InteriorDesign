@@ -57,7 +57,7 @@
       before_x:rtl?-count:count,after_x:rtl?width-count:count-width};}
   function validate(clips,photos){if(clips.length>24)return '最多24組對比片段。';const bank=new Map(photos.map(p=>[p.id,p])),ids=new Set();
     if(clips.reduce((n,c)=>n+c.duration,0)>120)return '對比影片最多120秒。';
-    for(const c of clips){if(c.type!=='comparison'||!c.name?.trim()||c.name.length>80)return '對比名稱需為1～80字。';if(ids.has(c.id)||bank.get(c.before_id)?.role!=='before'||bank.get(c.after_id)?.role!=='after')return '對比照片已刪除或分類改變，請重新配對。';ids.add(c.id);
+    for(const c of clips){if(c.type!=='comparison'||!c.name?.trim()||c.name.length>80)return '對比名稱需為1～80字。';if(ids.has(c.id)||!bank.has(c.before_id)||!bank.has(c.after_id)||c.before_id===c.after_id)return '請指定兩張不同且存在的對比照片。';ids.add(c.id);
       if(!['switch','split','reveal'].includes(c.mode)||!['cut','fade','slide'].includes(c.transition)||!['ltr','rtl'].includes(c.direction))return '對比動畫設定不正確。';
       if(![c.duration,c.before_time,c.transition_time,c.split].every(Number.isFinite)||c.duration<1||c.duration>20||c.before_time<0||c.transition_time<0||c.before_time+c.transition_time>c.duration-1/30+1e-7||c.split<.1||c.split>.9||
         (c.mode==='reveal'&&c.transition_time<1/30-1e-7)||(c.mode==='switch'&&c.transition==='cut'&&c.transition_time!==0))return '請確認對比停留時間、轉場與分割比例。';

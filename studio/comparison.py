@@ -8,6 +8,7 @@ from .rendering import crop_photo
 from .safe_area import title_position
 
 MAX_CLIPS = 24
+BGM_API_VERSION = 10
 
 
 def crop_settings(raw):
@@ -54,7 +55,7 @@ def validate_comparisons(rows, photos):
             raise ValueError("對比片段 ID 不正確或重複。")
         seen.add(ident)
         b,a=row.get("before_id"),row.get("after_id")
-        if not isinstance(b,str) or not isinstance(a,str) or b not in bank or a not in bank or bank[b].role!="before" or bank[a].role!="after":
+        if not isinstance(b,str) or not isinstance(a,str) or b not in bank or a not in bank or b==a:
             raise ValueError("請指定有效的施工前與施工後照片。")
         mode,transition,direction=row.get("mode"),row.get("transition"),row.get("direction")
         if row.get("type")!="comparison" or mode not in ("switch","split","reveal") or transition not in ("cut","fade","slide") or direction not in ("ltr","rtl"):

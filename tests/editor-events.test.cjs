@@ -32,11 +32,12 @@ function environment(storage=new Map()) {
       dispatch(name,data={}){handlers[name]?.({preventDefault(){},pointerId:1,...data});}};
   }
   const document={activeElement:null,hidden:false,getElementById(id){if(!elements.has(id))elements.set(id,element(id==='canvas'?'canvas':'div'));return elements.get(id);},
-    body:element('body'),createElement:element,querySelector:()=>element(),querySelectorAll:()=>[...elements.values()],addEventListener(){},removeEventListener(){}};
+    body:element('body'),createElement:element,createTextNode:text=>({textContent:text}),querySelector:()=>element(),querySelectorAll:()=>[...elements.values()],addEventListener(){},removeEventListener(){}};
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
     StudioOutput:require('../frontend/output-controller.js'),
+    StudioPairing:require('../frontend/pairing.js'),StudioPhotoHistory:require('../frontend/photo-history.js'),
     StudioDraft:{DraftState,metadata},StudioVersion,StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
@@ -57,6 +58,52 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,downloads,get draws(){return draws;}};
 }
+
+test('第四階段：建議／拒絕不改草稿序號，接受衝突需明確確認且不覆蓋原片段',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),rows=env.rows();
+  rows[0].role='before';rows[1].role='after';rows.push({...rows[1],id:'p3',name:'third',image:'image3'});
+  for(const p of rows)p.labels=[{id:'ai-'+p.id,source:'gemini',text:'客廳',description:'客廳有落地窗及橫梁',category:'其他特色',start:1,end:4,enter:.3,label_timing_version:1}];
+  let serial=0;const clip=StudioComparison.make(rows[0],rows[1],()=>`existing-${++serial}`),before=JSON.stringify(clip);
+  await env.receive({project:{photos:rows,template_id:'compare',comparisons:[clip]}});const seq=run('draft.seq');
+  get('suggestPairs').onclick();assert.equal(run('draft.seq'),seq);assert.equal(run('draft.comparisons.length'),1);
+  let card=get('pairSuggestions').children[0];card.children[5].onclick();assert.equal(run('draft.seq'),seq);
+  run('comparisonEditor.rejected.clear()');get('suggestPairs').onclick();card=get('pairSuggestions').children[0];
+  card.children[4].onclick();assert.equal(run('draft.comparisons.length'),1);assert.equal(run('draft.seq'),seq);
+  card.children[3].children[0].checked=true;card.children[4].onclick();assert.equal(run('draft.comparisons.length'),2);
+  assert.equal(JSON.stringify(run('draft.comparisons[0]')),before);assert.equal(run('draft.comparisons[1].after_id'),'p3');
+  assert.equal(env.changes().length,0);
+});
+
+test('第四階段：更換前／後及交換保留片段ID時長動畫，分類不刪引用，單純選取不改seq',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),rows=env.rows();rows[0].role='before';rows[1].role='after';rows.push({...rows[0],id:'p3',name:'other',role:'general'});
+  await env.receive({project:{photos:rows,template_id:'compare'}});get('autoPair').onclick();const before=JSON.parse(run('JSON.stringify(photo())'));
+  get('cmp_before_id').value='p3';get('cmp_before_id').oninput();assert.equal(run('photo().before_id'),'p3');
+  get('cmp_after_id').value='p1';get('cmp_after_id').oninput();assert.equal(run('photo().after_id'),'p1');
+  get('swapPair').onclick();assert.equal(run('photo().before_id'),'p1');assert.equal(run('photo().after_id'),'p3');
+  assert.equal(run('photo().id'),before.id);assert.equal(run('photo().duration'),before.duration);assert.equal(run('photo().transition'),before.transition);
+  run("photos[0].role='general';markEdited()");assert.equal(run('draft.comparisons.length'),1);
+  const seq=run('draft.seq');get('viewComparison').onclick();assert.equal(run('draft.seq'),seq);assert.equal(env.changes().length,0);
+});
+
+test('第四階段：刪來源先提示／取消不改資料，確認移除配對，復原完整資料且不逐次rerun',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),rows=env.rows();rows[0].role='before';rows[1].role='after';
+  await env.receive({project:{photos:rows,template_id:'compare'}});get('autoPair').onclick();const before=run('JSON.stringify(StudioPhotoHistory.state(draft))'),seq=run('draft.seq');
+  run("deleteSource('p1')");assert.equal(run('photos.length'),2);assert.equal(run('draft.seq'),seq);get('cancelPhotoDelete').onclick();assert.equal(run('photos.length'),2);
+  run("deleteSource('p1')");get('confirmPhotoDelete').onclick();assert.equal(run('photos.length'),1);assert.equal(run('draft.comparisons.length'),0);
+  get('undoPhoto').onclick();assert.equal(run('photos.length'),2);assert.equal(run('draft.comparisons.length'),1);
+  assert.equal(run('JSON.stringify(StudioPhotoHistory.state(draft))'),before);assert.equal(env.changes().length,0);
+});
+
+test('第四階段：刪除同步後元件重建仍可復原，下一次批次帶來源ID；後續修改拒絕覆寫',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),rows=env.rows();await env.receive();
+  run("deleteSource('p1')");assert.equal(run('photos.length'),1);
+  const rebuilt=environment(env.storage),get=id=>rebuilt.elements.get(id),r=s=>vm.runInContext(s,rebuilt.context);
+  await rebuilt.receive({project:{photos:[rows[1]]},revision:2,undo_photo:rows[0]});get('undoPhoto').onclick();
+  assert.equal(r('photos.length'),2);vm.runInContext("synchronize('apply')",rebuilt.context);const sent=rebuilt.changes()[0].value;
+  assert.equal(sent.restore_photo,'p1');assert.equal(sent.photos[0].id,'p1');
+  const other=environment();await other.receive();vm.runInContext("deleteSource('p1');photos[0].duration=3;markEdited()",other.context);
+  other.elements.get('undoPhoto').onclick();assert.equal(vm.runInContext('photos.length',other.context),1);assert.match(other.elements.get('deleteNotice').textContent,/無法安全復原/);
+});
 test('BGM音量與淡出連續修改不送Python，rerun／重建保留，輸出批次使用最新音樂設定',async()=>{
   const env=environment(),m={...StudioMusic.newMusic(),source:'audio'},project={photos:env.rows(),music:m,music_asset:{id:'audio',name:'tone.wav',duration:2,src:'data:audio/wav;base64,mock'}};
   await env.receive({project});const get=id=>env.elements.get(id);

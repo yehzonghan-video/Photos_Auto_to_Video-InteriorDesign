@@ -98,6 +98,8 @@ def context(state, width=None):
         if prior is None or prior[0] is not data:cache[ident]=(data,sha256(data).hexdigest())
         return cache[ident][1]
     photos={p.id:hashed('photo:'+p.id,p.original) for p in state.get('photos',[])}
+    undo=state.get('photo_undo')
+    if undo and undo.id not in photos:photos[undo.id]=hashed('photo:'+undo.id,undo.original)
     assets=[dict(id=a.id,name=a.name,builtin=a.builtin,width=a.width,height=a.height,
                  content_hash=hashed('png:'+a.id,a.original)) for a in state.get('overlay_assets',{}).values()]
     music=state.get('music_asset')
@@ -140,5 +142,5 @@ def complete_export(state, data, seconds, version):
 def reset_versions(state):
     for key in ('content_version','zip_version','mp4_version','backup_confirmed_version',
                 'zip_download_requested_version','zip_download_request_id','frontend_version','frontend_seq','_version_media_cache',
-                'guard_request','guard_approved','guard_import_project'):
+                'guard_request','guard_approved','guard_import_project','photo_undo','photo_undo_preview'):
         state.pop(key,None)

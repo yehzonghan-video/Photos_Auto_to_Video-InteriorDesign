@@ -3,7 +3,10 @@
   const $=id=>document.getElementById(id),clone=v=>JSON.parse(JSON.stringify(v));
   const fields=['before_id','after_id','name','mode','transition','direction','before_time','transition_time','after_time','split','show_line'];
   class ComparisonEditor{
-    constructor(hooks){this.hooks=hooks;this.cropSide='after';this.view='combined';
+    constructor(hooks){this.hooks=hooks;this.cropSide='after';this.view='combined';this.suggestions=[];this.rejected=new Set();this.signature=null;this.manualBefore=false;this.manualAfter=false;
+      $('newBefore').onchange=()=>{this.manualBefore=true;};$('newAfter').onchange=()=>{this.manualAfter=true;};
+      $('suggestPairs').onclick=()=>{if(hooks.locked())return;this.signature=this.evidenceKey();this.suggestions=StudioPairing.suggest(hooks.photos(),hooks.clips()).filter(s=>!this.rejected.has(s.id));this.renderSuggestions();};
+      $('swapPair').onclick=()=>this.swap();
       $('autoPair').onclick=()=>{if(hooks.locked())return;const r=StudioComparison.pair(hooks.photos(),hooks.clips(),()=>crypto.randomUUID());
         hooks.change();hooks.choose(hooks.clips()[0]?.id);hooks.status(`新增${r.added}組配對；兩邊數量差${r.unmatched}張，來源照片全部保留。${r.skipped?'部分配對超過片段／時間上限，請手動調整。':''}`);};
       $('addPair').onclick=()=>this.add();
@@ -20,10 +23,38 @@
     }
     options(select,role,value){const previous=value??select.value;select.replaceChildren();
       const empty=document.createElement('option');empty.value='';empty.textContent='請選擇照片';select.append(empty);
-      for(const p of this.hooks.photos().filter(p=>p.role===role)){const o=document.createElement('option');o.value=p.id;o.textContent=p.name;select.append(o);}
-      const rows=this.hooks.photos().filter(p=>p.role===role);select.value=rows.some(p=>p.id===previous)?previous:(rows[0]?.id||'');}
+      const rows=[...this.hooks.photos()].sort((a,b)=>Number(b.role===role)-Number(a.role===role));
+      for(const p of rows){const o=document.createElement('option');o.value=p.id;o.textContent=p.name;select.append(o);}
+      select.value=rows.some(p=>p.id===previous)?previous:(rows[0]?.id||'');}
+    evidenceKey(){return JSON.stringify([this.hooks.photos().map(p=>({id:p.id,name:p.name,role:p.role,hash:p.content_hash,labels:p.labels})),this.hooks.clips().map(c=>[c.before_id,c.after_id])]);}
+    renderSuggestions(){const area=$('pairSuggestions');area.replaceChildren();
+      if(this.signature===null)return;
+      if(this.signature!==this.evidenceKey()){area.textContent='來源／分析或配對已改變，請重新按「建議配對」。';return;}
+      if(!this.suggestions.length){area.textContent='目前無法確定配對，或建議已處理。可直接手動指定前後照片；不會額外呼叫AI。';return;}
+      const h=this.hooks;
+      for(const s of this.suggestions){const card=document.createElement('section'),row=document.createElement('div'),reason=document.createElement('p'),warn=document.createElement('p');
+        const before=document.createElement('select'),after=document.createElement('select'),bi=document.createElement('img'),ai=document.createElement('img');
+        const accept=document.createElement('button'),reject=document.createElement('button'),consent=document.createElement('input'),check=document.createElement('label');
+        card.className='pair-suggestion';row.className='row';reason.textContent=`${s.confidence}信心 · ${s.reason}`;warn.className='hint';consent.type='checkbox';consent.checked=false;
+        before.setAttribute?.('aria-label','建議施工前照片');after.setAttribute?.('aria-label','建議施工後照片');
+        this.options(before,'before',s.before_id);this.options(after,'after',s.after_id);
+        const update=()=>{consent.checked=false;const b=h.photos().find(p=>p.id===before.value),a=h.photos().find(p=>p.id===after.value);
+          reason.textContent=before.value!==s.before_id||after.value!==s.after_id?'已手動指定來源；原建議理由不再適用，請自行核對。':`${s.confidence}信心 · ${s.reason}`;
+          bi.src=b?.image||'';bi.alt=b?.name||'';ai.src=a?.image||'';ai.alt=a?.name||'';
+          const n=StudioPairing.conflicts(before.value,after.value,h.clips()).length;check.hidden=!n;
+          warn.textContent=n?`與${n}組既有配對共用來源；原配對不改動，確認後另加新片段。`:'確認只新增本組，不修改既有片段。';};
+        before.onchange=after.onchange=update;update();
+        check.append(consent,document.createTextNode('我確認保留既有配對，另加這組'));
+        accept.textContent='接受建議';reject.textContent='拒絕';
+        accept.onclick=()=>{if(h.locked())return;
+          if(StudioPairing.conflicts(before.value,after.value,h.clips()).length&&!consent.checked){h.status('此建議與既有配對共用來源，請先勾選確認；原配對保留。',true);return;}
+          if(this.addSources(before.value,after.value,false)){this.suggestions=this.suggestions.filter(x=>x.id!==s.id);this.renderSuggestions();}};
+        reject.onclick=()=>{this.rejected.add(s.id);this.suggestions=this.suggestions.filter(x=>x.id!==s.id);this.renderSuggestions();};
+        row.append(bi,before,ai,after);card.append(row,reason,warn,check,accept,reject);area.append(card);}
+    }
     library(){const h=this.hooks;$('comparisonBank').hidden=!h.active();if(!h.active())return;
-      this.options($('newBefore'),'before');this.options($('newAfter'),'after');$('sourceBank').replaceChildren();
+      this.options($('newBefore'),'before',this.manualBefore?undefined:(h.photos().find(p=>p.role==='before')?.id||''));
+      this.options($('newAfter'),'after',this.manualAfter?undefined:(h.photos().find(p=>p.role==='after')?.id||''));$('sourceBank').replaceChildren();
       const used=new Set(h.clips().flatMap(c=>[c.before_id,c.after_id]));let unpaired=0;
       for(const [role,title] of [['before','施工前'],['after','施工後'],['general','未分類（原有照片）']]){
         const group=document.createElement('section'),heading=document.createElement('h4'),list=document.createElement('div');heading.textContent=title;list.className='source-list';group.append(heading,list);
@@ -31,22 +62,28 @@
         for(const p of rows){const card=document.createElement('div'),img=document.createElement('img'),name=document.createElement('span'),controls=document.createElement('div'),select=document.createElement('select');
           card.className='source-card';img.src=p.image;img.alt=p.name;name.textContent=p.name+(used.has(p.id)?' · 已配對':' · 未配對');if(!used.has(p.id))unpaired++;
           for(const [value,text] of [['general','未分類'],['before','施工前'],['after','施工後']]){const o=document.createElement('option');o.value=value;o.textContent=text;select.append(o);}select.value=role;select.setAttribute?.('aria-label',`分類 ${p.name}`);
-          select.onchange=()=>{if(h.locked())return;p.role=select.value;this.prune();h.change();this.library();};
+          select.onchange=()=>{if(h.locked())return;p.role=select.value;h.change();this.library();if(p.role==='before')$('newBefore').value=p.id;else if(p.role==='after')$('newAfter').value=p.id;};
           for(const [text,delta] of [['←',-1],['→',1]]){const b=document.createElement('button');b.textContent=text;b.title=`${p.name} ${text==='←'?'前移':'後移'}`;b.onclick=()=>{if(h.locked())return;const all=h.photos(),indices=all.map((row,i)=>({row,i})).filter(v=>(v.row.role||'general')===role),index=indices.findIndex(v=>v.row.id===p.id),other=indices[index+delta];if(!other)return;
             const i=indices[index].i,j=other.i;[all[i],all[j]]=[all[j],all[i]];h.change();this.library();};controls.append(b);}
-          const remove=document.createElement('button');remove.textContent='刪除來源';remove.className='danger';remove.title='同時移除引用此照片的配對';remove.onclick=()=>{if(h.locked())return;h.removeSource(p.id);this.prune();h.change();this.library();};
+          const remove=document.createElement('button');remove.textContent='刪除來源';remove.className='danger';remove.title='先檢查影響，可復原最近一次刪除';remove.onclick=()=>{if(!h.locked())h.removeSource(p.id);};
           const replace=document.createElement('button');replace.textContent='替換照片';replace.onclick=()=>{if(!h.locked())h.replace(p.id);};
           controls.append(replace,remove);card.append(img,name,select,controls);list.append(card);}
         if(!rows.length){const empty=document.createElement('p');empty.textContent='尚無照片';list.append(empty);} $('sourceBank').append(group);}
-      $('pairSummary').textContent=`${h.clips().length}組配對 · ${unpaired}張來源未配對；多餘照片保留。每張來源可直接替換；分類／刪除來源會移除引用它的配對。`;
+      $('pairSummary').textContent=`${h.clips().length}組配對 · ${unpaired}張來源未配對。來源可分類及替換；分類不會刪除既有配對。手動選單可選任何來源。`;this.renderSuggestions();
     }
     prune(){const h=this.hooks,b=new Map(h.photos().map(p=>[p.id,p])),rows=h.clips();
-      for(let i=rows.length-1;i>=0;i--)if(b.get(rows[i].before_id)?.role!=='before'||b.get(rows[i].after_id)?.role!=='after')rows.splice(i,1);}
+      for(let i=rows.length-1;i>=0;i--)if(!b.has(rows[i].before_id)||!b.has(rows[i].after_id))rows.splice(i,1);}
     add(){const h=this.hooks;if(h.locked())return;
-      const b=h.photos().find(p=>p.id===$('newBefore').value),a=h.photos().find(p=>p.id===$('newAfter').value);
-      if(!b||!a){h.status('請先選擇施工前與施工後照片。',true);return;}
-      if(h.clips().length>=24||h.clips().reduce((n,c)=>n+c.duration,0)+5>120){h.status('最多24組配對、總長120秒，請先調整片段。',true);return;}
-      const c=StudioComparison.make(b,a,()=>crypto.randomUUID());h.clips().push(c);h.choose(c.id);h.change();this.library();}
+      this.addSources($('newBefore').value,$('newAfter').value);}
+    addSources(bid,aid,allowDuplicate=true){const h=this.hooks,b=h.photos().find(p=>p.id===bid),a=h.photos().find(p=>p.id===aid);
+      if(!b||!a||b.id===a.id){h.status('請指定兩張不同的前後照片。',true);return false;}
+      if(!allowDuplicate&&h.clips().some(c=>c.before_id===bid&&c.after_id===aid)){h.status('這組配對已存在，沒有重複新增。');return false;}
+      if(h.clips().length>=24||h.clips().reduce((n,c)=>n+c.duration,0)+5+(h.prefix?.()||0)>120){h.status('最多24組、含封面總長120秒，請先調整片段。',true);return false;}
+      const c=StudioComparison.make(b,a,()=>crypto.randomUUID());h.clips().push(c);h.change();h.choose(c.id);this.library();return true;}
+    swap(){const h=this.hooks,c=h.current();if(!c||!c.before_id||h.locked())return;
+      [c.before_id,c.after_id]=[c.after_id,c.before_id];[c.before_crop,c.after_crop]=[c.after_crop,c.before_crop];
+      for(const l of c.labels)if(l.source==='gemini')l.needs_review=true;
+      h.change();this.library();h.status('已交換前後照片及各自裁切；片段、文字與動畫保留，請核對文字及定位。');}
     refresh(){const c=this.hooks.current();$('comparisonForm').hidden=!this.hooks.active()||!c;if(!c||!this.hooks.active())return;
       let start=0;for(const row of this.hooks.clips()){if(row.id===c.id)break;start+=row.duration;}
       $('comparisonClock').textContent=`全片 ${start.toFixed(2)}～${(start+c.duration).toFixed(2)} 秒`;
@@ -67,14 +104,16 @@
         else{const after=next.duration-next.before_time-next.transition_time;
           if(key==='after_time')next.duration=next.before_time+next.transition_time+Math.round(value*30)/30;
           else{next[key]=Math.round(value*30)/30;next.duration=next.before_time+next.transition_time+after;}}}
-      if(key==='before_id'||key==='after_id'){const p=h.photos().find(p=>p.id===next[key]);if(p)next[key==='before_id'?'before_crop':'after_crop']=StudioComparison.crop(p);}
+      if(key==='before_id'||key==='after_id'){if(next[key]===c[key])return;
+        const p=h.photos().find(p=>p.id===next[key]);if(p)next[key==='before_id'?'before_crop':'after_crop']=StudioComparison.crop(p);
+        for(const l of next.labels)if(l.source==='gemini')l.needs_review=true;}
       if(next.mode==='switch'&&next.transition==='cut'){next.duration-=next.transition_time;next.transition_time=0;}
       else if(next.transition_time<1/30&&(next.mode==='reveal'||(next.mode==='switch'&&next.transition!=='cut'))){next.transition_time=1;next.duration+=1;}
       const error=StudioComparison.validate([next],h.photos());if(error){h.status(error,true);return;}
       // 分割模式同時顯示兩側文字；切回順序播放則共用施工前文字的位置。
       if(key==='mode'&&next.mode==='split'&&c.mode!=='split'){
         const title=next.labels.find(l=>l.comparison_side==='after');if(title)title.x=.57;}
-      StudioComparison.resize(next,next.duration);Object.assign(c,next);h.change();this.refresh();if(['before_id','after_id'].includes(key))this.library();}
+      StudioComparison.resize(next,next.duration);Object.assign(c,next);h.change();this.refresh();if(['before_id','after_id'].includes(key)){this.library();h.status('已更換本片段來源；順序、時長與動畫保留，請檢查裁切與標籤定位。');}}
     importLabels(){const h=this.hooks,c=h.current();if(!c||h.locked())return;const p=h.photos().find(p=>p.id===c.after_id);let count=0;
       for(const original of p?.labels||[]){if(c.labels.length>=12)break;if(c.labels.some(l=>l.origin_label_id===original.id))continue;
         const l=clone(original);l.id=crypto.randomUUID();l.origin_label_id=original.id;l.start=Math.min(c.before_time+l.start,c.duration-1/30);l.end=Math.max(l.start+1/30,Math.min(c.before_time+l.end,c.duration));l.enter=Math.min(l.enter,l.end-l.start);

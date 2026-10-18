@@ -4,3 +4,8 @@
 .cover-color-preview{white-space:pre-wrap;font-size:20px;background:#232823;padding:8px;border-radius:6px;margin:10px 0;line-height:1.4}
 .controls{display:flex;flex-direction:column;gap:2px}.controls>*{order:10;flex-shrink:0}.controls>[hidden]{display:none}.controls>#selectionHeading{order:-2}.controls>.focused-settings{order:0}.controls>#status,.controls>#aiStatus{order:30}.controls>#overlayForm.focused-settings{margin-top:0;border-top:0;padding-top:0}#replacePhoto{width:100%;margin-bottom:6px}
 :root .comparison-bank{padding:14px;background:#eee9df;border:1px solid #d8cfbf;margin-bottom:16px;border-radius:12px}.source-bank{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.source-bank h4{margin:8px 0}.source-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}.source-card{min-width:130px;max-width:150px;background:#fff;padding:7px;border-radius:8px;display:flex;flex-direction:column;gap:6px}.source-card img{width:120px;height:80px;object-fit:contain;background:#000}.source-card span{font-size:11px;overflow-wrap:anywhere}.source-card button{font-size:11px;padding:4px}.source-card select{width:100%;font-size:12px}@media(max-width:720px){.source-bank{grid-template-columns:1fr}}
+/* 建議配對沿用來源卡與控制項，不另外建立彈窗。 */
+.pair-suggestion{padding:12px;margin:8px 0;border:1px solid #d9d5cc;border-radius:8px}
+.pair-suggestion img{width:70px;height:70px;object-fit:contain;background:#111}
+.pair-suggestion select{max-width:200px;min-width:100px}
+.pair-suggestion button{margin:6px 8px 0 0}

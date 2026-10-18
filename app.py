@@ -15,7 +15,7 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 3:
+    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 4:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
@@ -324,11 +324,12 @@ try:
                  comparisons=st.session_state.comparisons, template=st.session_state.template_mode,
                  comparison_overlays=st.session_state.comparison_overlays, cover=st.session_state.cover,
                  music=st.session_state.music, music_asset=st.session_state.music_asset)
+    from studio.photo_history import preview as undo_preview
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,
            response=st.session_state.editor_response, revision=st.session_state.revision,
            export_request=request["id"] if request else None, busy=st.session_state.editor_busy,
-           ai_imports=st.session_state.ai_imports,
+           ai_imports=st.session_state.ai_imports,undo_photo=undo_preview(st.session_state),
            versions=versioning.status(st.session_state),guard_request=st.session_state.get('guard_request'),
            output_status=st.session_state.get('output_status'),zip_delivery=delivery(st.session_state.get('project_archive'),st.session_state.get('zip_download_request_id')),
            key="studio_editor", default=None)

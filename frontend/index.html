@@ -9,7 +9,9 @@
 <body>
 <section class="studio">
   <section id="comparisonBank" hidden class="comparison-bank">
-    <div class="strip-header"><strong>前後照片與配對</strong><button id="autoPair" class="primary">依順序自動配對</button></div>
+    <div class="strip-header"><strong>前後照片與配對</strong><button id="suggestPairs" class="primary">建議配對（不呼叫AI）</button><button id="autoPair">依順序自動配對</button></div>
+    <p class="hint">建議只參考既有AI標籤、說明及照片分類／檔名，未分析或證據不足時不推測。確認後才新增，不取代原配對。</p>
+    <div id="pairSuggestions" aria-live="polite"></div>
     <div id="sourceBank" class="source-bank"></div>
     <div class="row"><label class="field">新增配對：施工前<select id="newBefore"></select></label><label class="field">施工後<select id="newAfter"></select></label><button id="addPair">新增配對</button></div>
     <p id="pairSummary" class="hint"></p>
@@ -17,6 +19,7 @@
   <div class="strip-header"><span>照片時間軸 <small>拖曳縮圖調整順序</small></span><span id="total"></span></div>
   <details class="asset-section"><summary>進階／同步恢復</summary><button id="applyChanges">同步草稿（疑難排解）</button><p class="hint">一般下載ZIP與輸出影片會自動準備，無須先同步；前端刪除來源後需釋放名額時也可使用。</p></details>
   <div id="photos" class="photos" aria-label="照片播放順序"></div>
+  <div class="row"><button id="undoPhoto" hidden>復原最近刪除</button><span id="deleteNotice" class="hint" role="status"></span><button id="confirmPhotoDelete" hidden>確認刪除</button><button id="cancelPhotoDelete" hidden>取消</button></div>
   <p id="versionStatus" role="status" class="hint" style="margin:0;padding:0 18px 12px"></p>
   <details class="asset-section" open><summary>PNG 素材庫 · 點選加入全片時間軸</summary><div id="assetLibrary" class="asset-library"></div><p class="hint">自己的透明 PNG 請使用上方「上傳 PNG 素材」。圖層可跨照片，所有拖曳先存在此頁。</p></details>
   <div class="editor-grid">
@@ -83,6 +86,7 @@
         <label class="field">片段名稱<input id="cmp_name" maxlength="80"></label>
         <label class="field">配對：施工前<select id="cmp_before_id"></select></label><label class="field">配對：施工後<select id="cmp_after_id"></select></label>
         <label class="field">對比模式<select id="cmp_mode"><option value="switch">前後切換</option><option value="split">左右分割</option><option value="reveal">滑動揭露</option></select></label>
+        <button id="swapPair">交換施工前／後</button>
         <label class="field">切換轉場<select id="cmp_transition"><option value="cut">直接切換</option><option value="fade">淡入淡出</option><option value="slide">左右滑動</option></select></label>
         <label class="field">滑動／揭露方向<select id="cmp_direction"><option value="ltr">左至右</option><option value="rtl">右至左</option></select></label>
         <div class="row"><label class="field">施工前停留<input id="cmp_before_time" type="number" min="0" step=".1"></label><label class="field">轉場／揭露時間<input id="cmp_transition_time" type="number" min="0" step=".1"></label></div>
@@ -155,5 +159,5 @@
     <p class="hint">紅線為播放指針。正文標題、LOGO及PNG使用全片時間；照片標籤隨照片順序移動。正文與LOGO可分別拖曳及裁切，預設跟隨正文長度，手動改時間後會限制於正文範圍。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="content-version.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="pairing.js"></script><script src="photo-history.js"></script><script src="content-version.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
 </body></html>

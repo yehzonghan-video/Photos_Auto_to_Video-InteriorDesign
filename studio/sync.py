@@ -8,7 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 3
+EDITOR_UI_VERSION = 4
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -106,7 +106,9 @@ def consume_editor_event(state, event):
         template=state.get("template_mode","items")
         if event.get("template_id",template)!=template:
             raise ValueError("模板已切換，草稿保留；請再次套用。")
-        staged=apply_editor_event([replace(p) for p in state["photos"]],event,state["editor_session"],
+        from .photo_history import sources,commit
+        bank=sources(state,event)
+        staged=apply_editor_event([replace(p) for p in bank],event,state["editor_session"],
                                   state["revision"],request["id"] if request else None)
         clips=validate_comparisons(event.get("comparisons",state.get("comparisons",[])),staged)
         raw_cover=event.get('cover',state.get('cover'))
@@ -141,8 +143,10 @@ def consume_editor_event(state, event):
         accepted_version=project_version(proposal)
         if event.get('content_version') is not None and event['content_version']!=accepted_version:
             raise ValueError('草稿版本與伺服器資料不一致，內容已保留，請等待畫面更新後再次套用。')
-        photos = apply_editor_event(state["photos"], event, state["editor_session"],
+        before=list(state['photos'])
+        photos = apply_editor_event(bank, event, state["editor_session"],
                                     state["revision"], request["id"] if request else None)
+        commit(state,before,photos,event.get('deleted_photo'))
         state["photos"] = photos
         state["overlays"] = overlays
         state["comparisons"]=clips
