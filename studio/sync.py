@@ -5,8 +5,9 @@ from dataclasses import replace
 from .comparison import validate_comparisons
 from .cover import validate_cover, DURATION
 from .music import validate_music
+from .versioning import refresh, project_version
 
-BGM_API_VERSION = 9
+BGM_API_VERSION = 10
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -44,6 +45,10 @@ def consume_editor_event(state, event):
     if nonce in seen:
         return
     state["editor_seen"] = (seen + [nonce])[-100:]
+    if event.get('action')=='inspect_guard':
+        from .protection import receive_probe
+        receive_probe(state,event)
+        return
     request = state.get("pending_export")
     if (event.get("action") == "cancel_export" and event.get("session") == state["editor_session"]
             and request and event.get("request") == request["id"]):
@@ -51,6 +56,7 @@ def consume_editor_event(state, event):
         state["editor_response"] = dict(nonce=nonce, ok=False, message="請先修正編輯器欄位，再重新輸出。")
         return
     try:
+        if 'content_version' not in state:refresh(state)
         # 用輕量 Photo 複本先驗證全部設定，原始 bytes 共用；成功才一起提交。
         template=state.get("template_mode","items")
         if event.get("template_id",template)!=template:
@@ -85,10 +91,11 @@ def consume_editor_event(state, event):
                                       state.get("overlay_assets",{}),sum(c["duration"] for c in clips)+prefix)
         if template=="compare" and event.get("action")=="export" and not clips:
             raise ValueError("請先新增一組前後配對再輸出。")
-        unchanged = ([p.metadata() for p in state['photos']] == [p.metadata() for p in staged]
-                     and all(value == state.get(key) for key,value in
-                             (('comparisons',clips),('cover',cover),('music',music),
-                              ('overlays',overlays),('comparison_overlays',comparison_overlays))))
+        proposal={**state,'photos':staged,'comparisons':clips,'cover':cover,'music':music,
+                  'overlays':overlays,'comparison_overlays':comparison_overlays}
+        accepted_version=project_version(proposal)
+        if event.get('content_version') is not None and event['content_version']!=accepted_version:
+            raise ValueError('草稿版本與伺服器資料不一致，內容已保留，請等待畫面更新後再次套用。')
         photos = apply_editor_event(state["photos"], event, state["editor_session"],
                                     state["revision"], request["id"] if request else None)
         state["photos"] = photos
@@ -101,19 +108,17 @@ def consume_editor_event(state, event):
         if isinstance(acknowledgements, list):
             state["ai_imports"] = [batch for batch in state.get("ai_imports", [])
                                    if batch["id"] not in acknowledgements]
-        state["revision"] += 1
-        state["project_payload"] = None
-        state['project_archive'] = None
+        refresh(state)
+        state['frontend_version']=accepted_version
+        state['frontend_seq']=event.get('seq')
         if not photos:
             state["editor_assets"] = {}
-        if event['action'] != 'save_project' or not unchanged:
-            state["output"] = None
-            state["output_seconds"] = None
-        state["editor_response"] = dict(nonce=nonce, ok=True, seq=event.get("seq"))
+        state["editor_response"] = dict(nonce=nonce, ok=True, seq=event.get("seq"),content_version=accepted_version)
         if event['action'] == 'save_project':
-            state['project_save_job'] = True
+            state['project_save_job'] = dict(version=accepted_version,nonce=nonce)
         if event["action"] == "export":
-            state["render_job"] = dict(width=request["width"], nonce=nonce)
+            state["render_job"] = dict(width=request["width"], nonce=nonce,
+                                       content_version=project_version(state,width=request['width']))
             state["editor_busy"] = True
             state["pending_export"] = None
     except (ValueError, KeyError, TypeError) as exc:

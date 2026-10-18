@@ -54,6 +54,8 @@ class AccessTests(unittest.TestCase):
         app.run();self.assertEqual(len(app.session_state.photos), 5)
         self.assertNotIn(TEST_PASSWORD, str(app.session_state.project_payload))
         next(b for b in app.button if b.label == '清空目前工作階段').click().run()
+        from tests.app_helpers import approve_workspace_action
+        approve_workspace_action(app)
         self.assertEqual(app.session_state.photos, [])
         self.assertTrue(any(b.label == '載入 5 張測試示意圖' for b in app.button))
 
@@ -62,6 +64,8 @@ class AccessTests(unittest.TestCase):
         next(b for b in app.button if b.label == '載入 5 張測試示意圖').click().run()
         self.assertEqual(len(app.session_state.photos), 5)
         next(b for b in app.button if b.label == '登出').click().run()
+        from tests.app_helpers import approve_workspace_action
+        approve_workspace_action(app)
         self.assert_closed(app)
         for key in ('_access_verified', 'photos', 'ai_cache', 'output', 'pending_export', 'project_payload'):
             self.assertNotIn(key, app.session_state)

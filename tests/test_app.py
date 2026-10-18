@@ -51,6 +51,11 @@ class AppTests(unittest.TestCase):
         app.run()
         self.assertEqual(len(app.session_state.overlays),1)
         next(b for b in app.button if b.label == "清空目前工作階段").click().run()
+        guard=app.session_state.guard_request
+        app.session_state['studio_editor']=dict(action='inspect_guard',nonce=guard['id'],request=guard['id'],
+            session=app.session_state.editor_session,base_revision=app.session_state.revision,content_version=app.session_state.content_version)
+        app.run()
+        next(b for b in app.button if b.label=='仍要清空工作區').click().run()
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state.photos, [])
         self.assertIsNone(app.session_state.output)

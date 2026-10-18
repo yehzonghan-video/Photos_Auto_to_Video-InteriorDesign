@@ -7,7 +7,7 @@ from PIL import Image, ImageOps
 from .cover import validate_title, title_tile
 from .models import number
 
-BGM_API_VERSION = 9
+BGM_API_VERSION = 10
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'body-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'body-template.png'
 

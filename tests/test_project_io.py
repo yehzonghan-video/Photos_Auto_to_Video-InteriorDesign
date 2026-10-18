@@ -156,7 +156,7 @@ class ProjectIOTests(unittest.TestCase):
         revision=state['revision'];consume_editor_event(state,event)
         self.assertTrue(state['editor_response']['ok']);self.assertTrue(state.pop('project_save_job'))
         self.assertEqual(state['output'],b'existing-mp4')
-        consume_editor_event(state,event);self.assertNotIn('project_save_job',state);self.assertEqual(state['revision'],revision+1)
+        consume_editor_event(state,event);self.assertNotIn('project_save_job',state);self.assertEqual(state['revision'],revision)
 
     def test_pack_failure_reports_failed_ack_and_keeps_applied_edits(self):
         state=fixture();state.update(project_save_job=True,editor_response={'nonce':'save','ok':True})

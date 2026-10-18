@@ -13,6 +13,7 @@ const draft = new StudioDraft.DraftState(), storageKey='interior-studio-draft';
 const waiters=new Map();
 let photoDragId=null, editRaf=0, serverBusy=false, preparing=false;
 let lastRevision=null, recordingFailure=null, activeExportRequest=null, receivedSession=null, storageFailed=false;
+let guardLocked=false,lastGuardRequest=null;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const isCompare=()=>draft.template==='compare';
 const bodySequence=()=>isCompare()?draft.comparisons:photos;
@@ -61,17 +62,27 @@ function persistDraft() {
 }
 window.addEventListener('pagehide',()=>{persistDraft();musicPlayer.stop();});
 function syncStatus() {
-  if(serverBusy)status('正在輸出已套用的影片設定…');
+  if(guardLocked)status('正在確認工作區操作；按「取消操作」可返回目前草稿。');
+  else if(serverBusy)status('正在輸出已套用的影片設定…');
   else if(preparing)status('輸出前正在套用最新設定…');
   else if(draft.pending)status('正在套用變更，可繼續編輯…');
-  else status(draft.dirty?'有未套用變更；切換照片會保留，輸出前會自動套用。':'已套用變更，預覽已與輸出設定對齊。');
+  else status(draft.dirty?'有未套用變更；切換照片會保留，輸出前會自動套用。':'編輯已同步到伺服器；MP4與ZIP是否最新，請看各自版本狀態。');
   if(storageFailed){$('status').textContent+=' 此瀏覽器無法暫存草稿，離開前請先套用。';$('status').classList.add('error');}
-  $('applyChanges').disabled=!!draft.pending||recording||preparing||serverBusy;
+  $('applyChanges').disabled=!draft.dirty||!!draft.pending||recording||preparing||serverBusy;
   $('saveProject').disabled=!!draft.pending||recording||preparing||serverBusy;
+  showVersions();
+}
+function showVersions(){
+  const versions=draft.versions,current=draft.contentVersion;if(!versions||!current){$('versionStatus').textContent='';return;}
+  const short=v=>v?v.slice(4,16):'尚無／來源未知';
+  const mp4=versions.mp4?(versions.mp4===current?'與草稿相同':'舊版本，需要重新輸出'):'尚無可確認版本的成片';
+  const zip=versions.zip?(versions.zip===current?'與草稿相同':'舊版本，非目前草稿備份'):'尚未產生';
+  $('versionStatus').textContent=`草稿 ${short(current)} · 已同步 ${short(versions.synced)}。MP4 ${short(versions.mp4)}：${mp4}。ZIP ${short(versions.zip)}：${zip}。`+
+    (versions.backup===current?'已有同版本ZIP備份（由你確認或匯入）。':'目前草稿尚無已確認的同版本ZIP備份；此分頁暫存不等於備份。');
 }
 function markEdited(persist=true) {
   const priorPhoto=selectedPhoto;
-  draft.touch(photos);clearBrowserResult();
+  clearBrowserResult();
   comparisonEditor.prune();
   StudioCover.ensureSource(draft.cover,photos);
   if(draft.cover?.body?.enabled)bodyEditor.position(draft.cover.body.x,draft.cover.body.y);
@@ -88,6 +99,7 @@ function markEdited(persist=true) {
   else if(editing&&active&&!pngEditor.active(active)){time=active.start;selectedPhoto=locate(time).photo?.id;}
   else if(editing&&!active&&photo())time=clamp(time,photoOffset(photo().id),photoOffset(photo().id)+photo().duration-1/30);
   if(selectedPhoto!==priorPhoto){selectedLabel=photo()?.labels[0]?.id;buildLabels();buildPhotos();}
+  draft.touch(photos);
   if(persist)persistDraft();
   syncStatus();timeline.draw();
 }
@@ -201,8 +213,10 @@ window.addEventListener('message', async event => {
       if(recording && recorder?.state==='recording') {recordingFailure='錄製期間專案內容改變，請重新錄製。';recorder.stop();}
     }
     lastRevision=args.revision;
-    serverBusy=!!args.busy;
+    guardLocked=!!args.guard_request;
+    serverBusy=!!args.busy||guardLocked;
     photos=draft.rows;
+    draft.configureVersions(args.versions);
     if(!recording&&!preparing&&!serverBusy&&!draft.pending) {
       const imported=StudioAI.importBatches(draft,args.ai_imports,imageCache,StudioPhoto.layout,()=>crypto.randomUUID());
       if(imported.added){markEdited();editing=true;stopPlayback();}
@@ -214,6 +228,12 @@ window.addEventListener('message', async event => {
     pngEditor.library();comparisonEditor.library();buildPhotos(); buildLabels(); fillForm(); draw(); support();
     lockEditor(recording||preparing||serverBusy);if(!recording&&!preparing)syncStatus();
     persistDraft();resize();
+    if(args.guard_request&&lastGuardRequest!==args.guard_request.id){
+      lastGuardRequest=args.guard_request.id;stopPlayback();persistDraft();
+      post('streamlit:setComponentValue',{value:{action:'inspect_guard',nonce:crypto.randomUUID(),session:draft.session,
+        request:lastGuardRequest,base_revision:draft.revision,seq:draft.seq,content_version:draft.currentVersion()},dataType:'json'});
+    }
+    if(!args.guard_request)lastGuardRequest=null;
     if(result.matched) {
       const waiter=waiters.get(args.response.nonce);
       if(waiter){clearTimeout(waiter.timer);waiters.delete(args.response.nonce);
@@ -514,7 +534,7 @@ function clearBrowserResult() {
 function lockEditor(locked) {
   if(locked&&dragging){dragging=null;persistDraft();}
   for(const element of document.querySelectorAll('button,input,select,textarea'))element.disabled=locked;
-  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!!draft.pending;$('saveProject').disabled=!!draft.pending;}
+  if(!locked){support();buildLabels();fillForm();$('applyChanges').disabled=!draft.dirty||!!draft.pending;$('saveProject').disabled=!!draft.pending;}
 }
 $('browserExport').onclick=async()=>{
   if(!bodySequence().length){status('請先加入照片或新增一組前後配對。',true);return;}

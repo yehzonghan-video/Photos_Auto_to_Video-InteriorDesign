@@ -9,7 +9,7 @@ from .rendering import font_path
 LAYOUT = json.loads((Path(__file__).resolve().parents[1]/'frontend'/'cover-layout.json').read_text(encoding='utf-8'))
 TEMPLATE = Path(__file__).resolve().parents[1]/'assets'/'covers'/'opening-template.png'
 DURATION = LAYOUT['duration']
-BGM_API_VERSION = 9
+BGM_API_VERSION = 10
 
 
 def new_cover():

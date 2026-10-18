@@ -3,6 +3,7 @@ from collections import deque
 from hashlib import sha256
 from io import BytesIO
 import os
+import json
 import math
 import threading
 import time
@@ -15,6 +16,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from .models import MAX_PHOTOS
 from .ai_diagnostics import classify_error, log_event, retry_delay, MAX_ATTEMPTS, MAX_RETRY_WAIT
+BGM_API_VERSION = 10
 
 DEFAULT_MODEL = "gemini-3.1-flash-lite"
 # 2026-10-13 官方 Standard 免費層；新增模型前需重新查證價格及 JSON 支援。
@@ -30,6 +32,9 @@ FREE_MODELS = set(MODEL_CHOICES)
 MAX_BATCH = MAX_PHOTOS
 SESSION_CALLS = 20
 PROMPT_VERSION = "interior-v1"
+GENERATION_OPTIONS = dict(temperature=.2,max_output_tokens=4096)
+IMAGE_EDGE, IMAGE_QUALITY = 1600, 90
+NORMALIZATION_VERSION = 'relative-box-v1'
 Ratio = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 BoxCoordinate = Annotated[int, Field(ge=0, le=1000, strict=True)]
 
@@ -102,7 +107,11 @@ def content_hash(photo):
 
 
 def cache_key(photo, model):
-    return f"{PROMPT_VERSION}:{model}:{content_hash(photo)}"
+    conditions=dict(prompt=PROMPT,schema=Analysis.model_json_schema(),generation=GENERATION_OPTIONS,
+                    image=dict(edge=IMAGE_EDGE,format='JPEG',quality=IMAGE_QUALITY,exif=True),
+                    thinking_budget=0 if model.startswith('gemini-2.5-') else None,normalization=NORMALIZATION_VERSION)
+    signature=sha256(json.dumps(conditions,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+    return f"{PROMPT_VERSION}:{model}:{content_hash(photo)}:{signature}"
 
 
 def safe_error(exc):
@@ -113,9 +122,9 @@ def image_part(photo):
     # 僅分析副本縮圖；原圖與 MP4 渲染品質不受影響，先校正 EXIF 再送出。
     with Image.open(BytesIO(photo.original)) as image:
         image = ImageOps.exif_transpose(image).convert("RGB")
-        image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+        image.thumbnail((IMAGE_EDGE, IMAGE_EDGE), Image.Resampling.LANCZOS)
         out = BytesIO()
-        image.save(out, format="JPEG", quality=90)
+        image.save(out, format="JPEG", quality=IMAGE_QUALITY)
     return types.Part.from_bytes(data=out.getvalue(), mime_type="image/jpeg")
 
 
@@ -141,7 +150,7 @@ def analyze_photo(photo, key, model=DEFAULT_MODEL, client_factory=client_for, *,
     try:
         options = dict(response_mime_type="application/json",
                        response_json_schema=Analysis.model_json_schema(),
-                       temperature=.2, max_output_tokens=4096)
+                       **GENERATION_OPTIONS)
         if model.startswith("gemini-2.5-"):
             options["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
         part = image_part(photo)
@@ -221,9 +230,14 @@ def unfinished_photos(photos, model, state):
     failed = {row["photo_id"] for row in state.get("ai_queue", [])
               if row.get("model") == model and row.get("status") not in ("完成", "使用快取")
               and any(p.id == row["photo_id"] and content_hash(p) == row.get("content_hash") for p in photos)}
-    return [p for p in photos if f"{p.id}:{cache_key(p, model)}" in state.get("ai_pending", {}) or p.id in failed or not (
-        (result := state.get("ai_results", {}).get(p.id))
-        and result.get("model") == model and result.get("content_hash") == content_hash(p))]
+    return [p for p in photos if f"{p.id}:{cache_key(p, model)}" in state.get("ai_pending", {}) or p.id in failed
+            or not valid_cache(p,model,state)]
+
+
+def valid_cache(photo, model, state):
+    # key已包含提示詞版本、模型與照片內容；切回另一模型不只看最後一次ai_results。
+    result=state.get('ai_cache',{}).get(cache_key(photo,model))
+    return result if result and result.get('model')==model and result.get('content_hash')==content_hash(photo) else None
 
 
 def analyze_batch(photos, key, model, state, force=False, progress=None,
@@ -251,7 +265,7 @@ def analyze_batch(photos, key, model, state, force=False, progress=None,
     for index, photo in enumerate(photos):
         row = queue[index]
         ident = cache_key(photo, model)
-        cached = ident in cache and not force and f'{photo.id}:{ident}' not in previously_pending
+        cached = bool(valid_cache(photo,model,state)) and not force and f'{photo.id}:{ident}' not in previously_pending
         try:
             if not cached:
                 if halt:
@@ -373,5 +387,4 @@ def queue_import(state, photo, result, selected):
     batch = dict(id=uuid.uuid4().hex, photo_id=photo.id,
                  content_hash=content_hash(photo), items=items)
     state["ai_imports"] = state.get("ai_imports", []) + [batch]
-    state["output"] = None
     return batch

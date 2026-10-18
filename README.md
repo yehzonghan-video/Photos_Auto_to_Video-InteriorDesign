@@ -8,6 +8,8 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 
 ## 目前功能
 
+資料安全更新：無變更套用保留MP4，修改／輸出失敗仍可下載上個成功版本；編輯器顯示草稿、已同步、ZIP與MP4來源版本。清空、登出及匯入取代前檢查備份；ZIP下載後可確認該版本已儲存，網站不把下載請求當作儲存成功。詳細規則與人工測試見 [資料安全與版本一致性](docs/DATA_SAFETY.md)。
+
 | 功能 | 已實作內容 |
 | --- | --- |
 | 共用密碼 | Secrets／環境變數設定、未登入阻擋製片、登出清除工作資料、錯誤輸入冷卻 |

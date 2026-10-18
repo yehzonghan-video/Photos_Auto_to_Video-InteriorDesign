@@ -17,12 +17,14 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 9:
+    if bootstrap.BGM_API_VERSION != 10:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.cover import new_cover, DURATION
     from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
     from studio.project_ui import prepare_download, import_panel, download_panel
+    from studio import versioning, protection
+    from studio.ai_ui import ai_panel
 except (RuntimeError, ImportError, OSError) as exc:
     st.error(str(exc))
     st.caption('重新啟動會清除目前工作階段的照片與草稿；請先下載仍可取得的成果。')
@@ -61,8 +63,7 @@ if prior_cover_duration!=DURATION and st.session_state.photos and st.session_sta
 st.session_state.cover_duration=DURATION
 if st.session_state.get('cover_version')!=4:
     st.session_state.cover_version=4;st.session_state.project_payload=None
-    st.session_state.editor_assets={};st.session_state.output=None
-    st.session_state.output_seconds=None;st.session_state.revision+=1
+    st.session_state.editor_assets={}
 if st.session_state.get('music_version')!=1:
     st.session_state.music_version=1;st.session_state.project_payload=None
 if st.session_state.get('body_title_version')!=5:
@@ -86,6 +87,7 @@ if st.session_state.get("editor_protocol") != 4:
     st.session_state.pop("studio_editor", None)
 
 # 新的元件值已在 rerun 前寫入 widget Session State，在回傳元件參數前完成交易。
+versioning.refresh(st.session_state)
 consume_editor_event(st.session_state, st.session_state.get("studio_editor"))
 
 # 舊照片與前端草稿各自只升級一次；手動調整過新時間後不再自動延後。
@@ -96,15 +98,42 @@ for item in [*st.session_state.photos,*st.session_state.comparisons]:
     for label in labels:
         if delay_label(label,duration):timing_changed=True
 if timing_changed:
-    st.session_state.project_payload=None;st.session_state.output=None;st.session_state.revision+=1
+    st.session_state.project_payload=None;versioning.refresh(st.session_state)
 
 
 def invalidate():
-    st.session_state.output = None
-    st.session_state.output_seconds = None
     st.session_state.project_payload = None
-    st.session_state.project_archive = None
-    st.session_state.revision += 1
+    versioning.refresh(st.session_state)
+
+
+def clear_workspace():
+    """僅在資料保護流程核准後清空；取消確認不會呼叫。"""
+    state=st.session_state
+    versioning.reset_versions(state)
+    state.update(photos=[],editor_session=uuid.uuid4().hex,editor_assets={},editor_response=None,
+                 editor_seen=[],pending_export=None,editor_busy=False,output=None,output_seconds=None,
+                 project_archive=None,overlays=[],comparisons=[],comparison_overlays=[],cover=new_cover(),
+                 music=new_music(),music_asset=None)
+    state.overlay_assets,state.asset_warnings=discover_assets()
+    for key in ('music_epoch','png_epoch','uploader_epoch'):state[key]+=1
+    state.photo_upload_epochs={role:epoch+1 for role,epoch in state.photo_upload_epochs.items()}
+    for key,value in dict(ai_cache={},ai_results={},ai_reports=[],ai_imports=[],ai_calls=0,
+                          ai_queue=[],ai_delivered={},ai_pending={}).items():state[key]=value
+    for key in ('ai_chosen','ai_consent','ai_force','ai_refresh_requested','render_job','project_save_job','studio_editor'):state.pop(key,None)
+    invalidate()
+
+
+approved=st.session_state.pop('guard_approved',None)
+if approved:
+    if approved=='logout':logout()
+    elif approved=='clear':clear_workspace()
+    elif approved=='import':
+        from studio.project_io import install_project
+        project=st.session_state.pop('guard_import_project')
+        install_project(st.session_state,project)
+        st.session_state.notice=f"已開啟專案，含{len(project['photos'])}張照片，可繼續編輯及輸出。"
+        st.session_state.notice_error=False
+    st.rerun()
 
 
 def check_capacity(photos):
@@ -137,15 +166,17 @@ prepare_download(st.session_state)
 
 with st.sidebar:
     st.markdown("### 案例影片工作室")
-    st.button("登出", on_click=logout, use_container_width=True)
+    if st.button("登出",use_container_width=True,disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))):
+        protection.request(st.session_state,'logout');st.rerun()
     st.caption("登出會清除目前工作階段，請先下載影片或專案檔。")
     import_panel(st.session_state)
+    protection.panel(st.session_state)
     st.caption("第四階段 · 裝修前後對比")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
     st.selectbox("影片模板", ["items","compare"], key="template_mode",
                  format_func=lambda key:template_config(key)["name"],
-                 disabled=st.session_state.editor_busy or st.session_state.pending_export is not None)
+                 disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request')))
     if st.session_state.last_template!=st.session_state.template_mode:
         st.session_state.last_template=st.session_state.template_mode;invalidate()
     st.caption("可切換裝修介紹或前後對比；各模板保留自己的片段、標籤與 PNG 草稿。")
@@ -163,30 +194,8 @@ with st.sidebar:
         st.caption("此處只確認目前執行環境，Cloud 部署後仍需重新驗證。")
     st.divider()
     st.caption("照片僅存在目前工作階段記憶體，請儲存專案檔以便下次編輯。使用雲端時，照片會傳至 Streamlit 伺服器。")
-    if st.button("清空目前工作階段", use_container_width=True):
-        st.session_state.photos = []
-        st.session_state.editor_session = uuid.uuid4().hex
-        st.session_state.editor_assets = {}
-        st.session_state.editor_response = None
-        st.session_state.pending_export = None
-        st.session_state.pop('project_save_job',None)
-        st.session_state.editor_busy = False
-        st.session_state.overlays = []
-        st.session_state.comparisons=[];st.session_state.comparison_overlays=[]
-        st.session_state.cover=new_cover()
-        st.session_state.music=new_music();st.session_state.music_asset=None;st.session_state.music_epoch+=1
-        st.session_state.overlay_assets, st.session_state.asset_warnings = discover_assets()
-        st.session_state.png_epoch += 1
-        for key, value in dict(ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[], ai_calls=0,
-                               ai_queue=[], ai_delivered={}, ai_pending={}).items():
-            st.session_state[key] = value
-        st.session_state.pop("ai_chosen", None)
-        st.session_state.pop("ai_consent", None)
-        st.session_state.pop("render_job", None)
-        st.session_state.uploader_epoch += 1
-        st.session_state.photo_upload_epochs={role:epoch+1 for role,epoch in st.session_state.photo_upload_epochs.items()}
-        invalidate()
-        st.rerun()
+    if st.button("清空目前工作階段", use_container_width=True,disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))):
+        protection.request(st.session_state,'clear');st.rerun()
 
 st.markdown('<div class="eyebrow">INTERIOR FILM STUDIO</div>', unsafe_allow_html=True)
 st.title("讓每個空間，說出它的設計。")
@@ -203,6 +212,7 @@ if st.session_state.notice:
 
 st.subheader("01　準備案例照片")
 compare_mode=st.session_state.template_mode=="compare"
+workspace_locked=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))
 sources=[("before","施工前照片（可一次多張）","加入施工前照片"),("after","施工後照片（可一次多張）","加入施工後照片")] if compare_mode else [("general","加入照片（可一次多張）","加入已選照片")]
 columns=st.columns([3]*len(sources)+[1])
 for col,(role,title,button_name) in zip(columns,sources):
@@ -210,7 +220,7 @@ for col,(role,title,button_name) in zip(columns,sources):
         uploaded=st.file_uploader(title,type=["jpg","jpeg","png","webp"],accept_multiple_files=True,
                                  max_upload_size=200,key=f"uploads_{role}_{st.session_state.photo_upload_epochs[role]}")
         st.caption("一般照片保留原檔；大照片或整批負荷較高時自動等比例最佳化。")
-        if st.button(button_name,disabled=not uploaded,type="primary"):
+        if st.button(button_name,disabled=not uploaded or workspace_locked,type="primary"):
             try:
                 with st.spinner("正在準備照片；大照片會自動最佳化…"):add_uploaded(uploaded,role)
                 st.rerun()
@@ -218,7 +228,7 @@ for col,(role,title,button_name) in zip(columns,sources):
                 st.error(str(exc) or "記憶體不足，請稍後重試。")
 with columns[-1]:
     st.caption("想先試操作？")
-    if st.button("載入前後對比測試圖" if compare_mode else "載入 5 張測試示意圖", use_container_width=True, disabled=bool(st.session_state.photos)):
+    if st.button("載入前後對比測試圖" if compare_mode else "載入 5 張測試示意圖", use_container_width=True, disabled=bool(st.session_state.photos) or workspace_locked):
         from scripts.verify_export import samples
         demo=samples()[:4] if compare_mode else samples()
         if compare_mode:
@@ -240,7 +250,7 @@ with st.expander("替換單張照片", expanded=False):
     replacement = st.file_uploader("選擇替換照片", type=["jpg", "jpeg", "png", "webp"], max_upload_size=200,
                                    key=f"replacement_{st.session_state.uploader_epoch}")
     st.caption("替換後保留此張照片的標籤與構圖設定，請重新確認定位點。")
-    if st.button("套用替換照片", disabled=replacement is None):
+    if st.button("套用替換照片", disabled=replacement is None or workspace_locked):
         try:
             fresh = load_photo(replacement.name, replacement.getvalue())
             target = next(p for p in photos if p.id == target_id)
@@ -264,7 +274,7 @@ with st.expander("上傳 PNG 素材（透明 LOGO、箭頭、價格框）", expa
     st.caption("素材僅保存在目前工作階段；單張最多5 MB／800萬畫素。上傳後到編輯器的 PNG 素材庫點選加入。請使用有權使用的素材。")
     png_files = st.file_uploader("選擇 PNG 素材", type=["png"], accept_multiple_files=True,
                                  max_upload_size=5, key=f"png_uploads_{st.session_state.png_epoch}")
-    if st.button("加入 PNG 素材庫", disabled=not png_files):
+    if st.button("加入 PNG 素材庫", disabled=not png_files or workspace_locked):
         try:
             proposed = dict(st.session_state.overlay_assets)
             for file in png_files:
@@ -286,7 +296,7 @@ with st.expander('背景音樂 BGM（預設1秒淡出）', expanded=False):
     music_file=st.file_uploader('選擇BGM',type=['mp3','wav','m4a','ogg','flac'],max_upload_size=MAX_MUSIC_UPLOAD_MB,
                               key=f'music_upload_{st.session_state.music_epoch}')
     add_music,remove_music=st.columns(2)
-    music_locked=st.session_state.editor_busy or st.session_state.pending_export is not None
+    music_locked=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request'))
     if add_music.button('加入／替換BGM',disabled=not music_file or music_locked):
         try:
             with st.spinner('正在處理音樂…'):asset=load_music(music_file.name,music_file.getvalue())
@@ -315,6 +325,7 @@ try:
            response=st.session_state.editor_response, revision=st.session_state.revision,
            export_request=request["id"] if request else None, busy=st.session_state.editor_busy,
            ai_imports=st.session_state.ai_imports,
+           versions=versioning.status(st.session_state),guard_request=st.session_state.get('guard_request'),
            key="studio_editor", default=None)
 except (RuntimeError, OSError) as exc:
     st.error(str(exc))
@@ -328,9 +339,9 @@ st.caption("按輸出後會先套用此頁的最新編輯，再以固定 30 FPS 
 options, summary = st.columns([2, 3])
 with options:
     size = st.selectbox("影片解析度", [1080, 720, 360],
-                        format_func=lambda w: f"{w} × {w*16//9}" + (" · Full HD" if w == 1080 else " · 較快輸出"),key='video_width')
+                        format_func=lambda w: f"{w} × {w*16//9}" + (" · Full HD" if w == 1080 else " · 較快輸出"),key='video_width',disabled=workspace_locked)
     render_clicked = st.button("輸出 H.264 MP4", type="primary", use_container_width=True,
-                               disabled=st.session_state.editor_busy or st.session_state.pending_export is not None)
+                               disabled=st.session_state.editor_busy or st.session_state.pending_export is not None or bool(st.session_state.get('guard_request')))
 with summary:
     st.markdown(f"**{len(photos)} 張來源照片 · 9:16**")
     st.caption("影片長度以編輯器時間軸為準；輸出前自動套用最新變更。")
@@ -342,19 +353,19 @@ if render_clicked:
 
 job = st.session_state.pop("render_job", None)
 if job:
-    st.session_state.output = None
     started = time.monotonic()
     bar = st.progress(0., text="正在準備影片素材…")
     try:
+        if job['content_version']!=versioning.project_version(st.session_state,width=job['width']):
+            raise ValueError('輸出請求後專案內容已變更，請重新輸出；上一個成功影片仍保留。')
         data = export_video(photos, job["width"], job["width"]*16//9,
                             progress=lambda value, message: bar.progress(value, text=message),
                             overlays=st.session_state.comparison_overlays if compare_mode else st.session_state.overlays,
                             assets=st.session_state.overlay_assets,template=st.session_state.template_mode,
                             comparisons=st.session_state.comparisons,cover=st.session_state.cover,
                             music=st.session_state.music,music_asset=st.session_state.music_asset)
-        st.session_state.output = data
-        st.session_state.output_seconds = round(time.monotonic() - started, 1)
-    except (RuntimeError, ValueError, OSError, TimeoutError) as exc:
+        versioning.complete_export(st.session_state,data,round(time.monotonic()-started,1),job['content_version'])
+    except (RuntimeError, ValueError, OSError, TimeoutError,MemoryError) as exc:
         bar.empty()
         st.session_state.notice = f"影片未完成：{exc}。可選擇 720p 或減少照片重試。"
         st.session_state.notice_error = True
@@ -363,10 +374,13 @@ if job:
     st.rerun()
 
 if st.session_state.output:
-    st.success(f"影片已完成，輸出耗時 {st.session_state.output_seconds} 秒。")
+    version=st.session_state.get('mp4_version')
+    st.success(f"最近成功影片已保留，輸出耗時 {st.session_state.output_seconds} 秒。")
+    st.caption(f"MP4版本：{version[4:16] if version else '來源版本未知'}。是否包含尚未套用的修改，請看編輯器即時版本狀態。")
+    if version!=st.session_state.content_version:st.warning('這是較舊或來源版本未知的MP4，不包含目前所有修改；重新輸出成功後才會替換。')
     download, preview = st.columns([1, 2])
     with download:
-        st.download_button("下載 MP4 影片", data=st.session_state.output, file_name="室內設計案例.mp4",
+        st.download_button("下載 MP4 影片", data=st.session_state.output, file_name=f"室內設計案例_{version[4:16] if version else '來源版本未知'}.mp4",
                            mime="video/mp4", type="primary", use_container_width=True, on_click="ignore")
         st.caption(f"檔案大小 {len(st.session_state.output)/1024/1024:.2f} MB")
     with preview:

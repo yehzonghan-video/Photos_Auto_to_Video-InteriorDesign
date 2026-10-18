@@ -17,7 +17,7 @@ from .overlays import MAX_ASSETS, MAX_ASSET_BYTES, load_asset
 from .music import MusicAsset
 from .photo_processing import WORKING_BYTES, WORKING_PIXELS, SESSION_BYTES, SESSION_PIXELS
 
-BGM_API_VERSION = 9
+BGM_API_VERSION = 10
 FORMAT = 'interior-video-project'
 VERSION = 1
 MAX_ARCHIVE_MB = 160
@@ -37,7 +37,8 @@ def build_archive(state):
     photos = state['photos']
     if not photos:
         raise ValueError('請先加入照片再儲存專案。')
-    manifest = dict(format=FORMAT, version=VERSION, created_at=datetime.now(timezone.utc).isoformat(),
+    from .versioning import project_version
+    manifest = dict(format=FORMAT, version=VERSION, content_version=project_version(state),created_at=datetime.now(timezone.utc).isoformat(),
                     video=dict(width=state.get('video_width', 1080), fps=30),
                     template_id=state.get('template_mode', 'items'), photos=[], assets=[], music_asset=None,
                     **{key: state[key] for key in PROJECT_KEYS})
@@ -210,14 +211,18 @@ def _load_archive(data):
 
 def install_project(state, project):
     """驗證成功後一次開啟新工作區；保留登入與AI用量，舊前端事件失效。"""
+    from .versioning import reset_versions,refresh
+    reset_versions(state)
     state.update({key:project[key] for key in (*PROJECT_KEYS,'photos','overlay_assets','music_asset','template_mode','video_width')})
     state.update(editor_session=uuid.uuid4().hex, revision=state.get('revision',0)+1,
                  last_template=project['template_mode'], output=None, output_seconds=None, project_payload=None,
                  editor_assets={}, editor_response=None, editor_seen=[], pending_export=None, editor_busy=False,
                  project_archive=None, ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[],
                  ai_queue=[], ai_delivered={}, ai_pending={}, asset_warnings=[])
-    for key in ('studio_editor','render_job','project_save_job','ai_chosen','ai_consent','ai_force'):
+    for key in ('studio_editor','render_job','project_save_job','ai_chosen','ai_consent','ai_force','ai_refresh_requested'):
         state.pop(key, None)
     for key in ('uploader_epoch','png_epoch','music_epoch','project_import_epoch'):
         state[key] = state.get(key,0)+1
     state['photo_upload_epochs'] = {role:state.get('photo_upload_epochs',{}).get(role,0)+1 for role in ('general','before','after')}
+    # 原始ZIP已存在；重新驗證後計算本機內容版本，不相信檔案自稱的版本或備份狀態。
+    state['backup_confirmed_version']=refresh(state)

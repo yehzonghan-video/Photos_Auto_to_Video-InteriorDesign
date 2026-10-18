@@ -147,6 +147,8 @@ class MusicTests(unittest.TestCase):
         next(b for b in app.button if b.label=='移除BGM').click().run();self.assertFalse(app.exception)
         self.assertIsNone(app.session_state.music_asset)
         next(b for b in app.button if b.label=='清空目前工作階段').click().run()
+        from tests.app_helpers import approve_workspace_action
+        approve_workspace_action(app)
         self.assertIsNone(app.session_state.music_asset);self.assertEqual(app.session_state.music['fade_out'],1)
 
 

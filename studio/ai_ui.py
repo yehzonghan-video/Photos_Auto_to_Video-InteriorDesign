@@ -2,6 +2,7 @@
 import streamlit as st
 from .ai import (AIError, DEFAULT_MODEL, MODEL_CHOICES, MAX_BATCH, analyze_batch,
                  auto_import, settings, unfinished_photos)
+BGM_API_VERSION = 10
 
 
 def ai_panel(photos, state):
@@ -21,7 +22,7 @@ def ai_panel(photos, state):
         model = st.selectbox("AI 辨識模型", list(MODEL_CHOICES),
             index=list(MODEL_CHOICES).index(DEFAULT_MODEL),
             format_func=lambda value: MODEL_CHOICES[value], key="ai_model")
-        locked = state.get("editor_busy", False) or state.get("pending_export") is not None
+        locked = state.get("editor_busy", False) or state.get("pending_export") is not None or bool(state.get('guard_request'))
         st.caption("可選多張照片，收到一張回覆後才分析下一張；每工作階段最多20次呼叫。模型支援免費層，實際額度與可用性依帳號而異，不會自動換模型。")
         consent = st.checkbox("我了解 Google 免費方案的資料使用政策，並有權傳送所選照片", key="ai_consent")
         ids = [p.id for p in photos]
@@ -32,11 +33,13 @@ def ai_panel(photos, state):
         chosen = st.multiselect("要分析的照片（可一次選全部）", ids,
             max_selections=MAX_BATCH, format_func=lambda ident: next(p.name for p in photos if p.id == ident), key="ai_chosen")
         force = st.checkbox("重新分析所選未完成照片（保留成功結果）", key="ai_force")
+        refresh_requested=st.checkbox('強制重新分析所選照片（忽略快取，會消耗額度）',key='ai_refresh_requested')
         missing = unfinished_photos(photos, model, state)
         missing_ids = {p.id for p in missing}
-        selected_targets = [p for p in photos if p.id in chosen and (not force or p.id in missing_ids)]
-        if force:
+        selected_targets = [p for p in photos if p.id in chosen and (refresh_requested or not force or p.id in missing_ids)]
+        if force and not refresh_requested:
             st.caption(f"只重送所選未完成的 {len(selected_targets)} 張照片；已成功照片不重送。")
+        if refresh_requested:st.caption('強制重新分析會忽略所選照片的成功快取；按分析後才會呼叫API。')
         primary, repair = st.columns(2)
         clicked = primary.button("AI 分析並加入標籤", disabled=not ready or not consent or not selected_targets or locked,
                                  type="primary", use_container_width=True)
@@ -54,7 +57,7 @@ def ai_panel(photos, state):
                                  for row in state.get("ai_queue", [])])
                 try:
                     with st.spinner("等待 Gemini 回覆或呼叫額度，完成後直接加入編輯器…", show_time=True):
-                        reports = analyze_batch(targets, key, model, state, force=force or retry,
+                        reports = analyze_batch(targets, key, model, state, force=(refresh_requested and clicked) or force or retry,
                             progress=progress, on_result=lambda photo, result: auto_import(state, photo, result))
                     failures = sum(not row["ok"] for row in reports)
                     waiting.update(label=f"已完成 {len(reports)-failures}/{len(reports)} 張" +

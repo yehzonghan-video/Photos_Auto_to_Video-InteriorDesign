@@ -1,0 +1,12 @@
+{
+  "photo": {"id":"", "name":"", "duration":4, "zoom":1, "crop_x":0.5, "crop_y":0.5, "fit":"contain", "role":"general"},
+  "label": {"id":"", "text":"", "x":0.12, "y":0.28, "point_x":0.58, "point_y":0.52, "font_size":46, "color":"#ffffff", "background":"#222822", "opacity":0.88, "radius":18, "line":true, "animation":"left", "start":0, "enter":0.6, "end":4, "layer":10},
+  "gemini": {"source":"gemini", "description":"", "category":"", "ai_item_id":"", "confidence_level":"低", "needs_review":true},
+  "comparison_label": {"comparison_side":"before", "auto_timing":false, "exit":0},
+  "crop": {"fit":"contain", "zoom":1, "crop_x":0.5, "crop_y":0.5},
+  "clip": {"id":"", "type":"comparison", "before_id":"", "after_id":"", "name":"裝修前後對比", "mode":"switch", "transition":"fade", "direction":"ltr", "duration":5, "before_time":2, "transition_time":1, "split":0.5, "show_line":true},
+  "overlay": {"id":"", "type":"png", "source":"", "name":"", "start":0, "duration":3, "layer":20, "x":0.5, "y":0.5, "width":0.3, "scale":1, "rotation":0, "opacity":1, "animation":"fade", "exit_animation":"fade", "enter":0.5, "exit":0.5},
+  "cover": {"enabled":false, "title":"室內設計案例", "photo_id":"", "color":"#ffffff", "font_size":120},
+  "body": {"enabled":true, "logo_enabled":true, "follow_cover":true, "title":"室內設計案例", "color":"#ffffff", "font_size":100, "x":0.5, "y":0.245, "auto_timing":true, "start":0, "end":null, "logo_auto_timing":true, "logo_start":0, "logo_end":null},
+  "music": {"enabled":true, "source":null, "volume":0.5, "fade_out":1, "loop":true}
+}

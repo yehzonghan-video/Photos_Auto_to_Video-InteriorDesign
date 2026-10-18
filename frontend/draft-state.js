@@ -1,5 +1,6 @@
 // 不保存照片內容；草稿僅含目前工作階段的編輯資料。
 (function (root) {
+  const V=typeof module!=='undefined'?require('./content-version.js'):root.StudioVersion;
   const clone = value => JSON.parse(JSON.stringify(value));
   const metadata = rows => rows.map(({image, tiles, ...row}) => clone(row));
   function merge(local, remote) {
@@ -17,18 +18,27 @@
       if (!saved || saved.session!==session || !Array.isArray(saved.rows)) return false;
       Object.assign(this, saved); this.rows=clone(saved.rows);return true;
     }
-    touch(rows) {this.rows=rows;this.seq++;this.dirty=true;}
+    currentVersion(){if(!this.versionContext)return null;V.configure(this.versionContext.schema);return V.version(this,this.versionContext);}
+    configureVersions(versions){
+      if(!versions?.context)return;
+      V.configure(versions.context.schema);this.versionContext=versions.context;this.versions=versions;
+      this.contentVersion=this.currentVersion();this.dirty=this.contentVersion!==versions.synced;
+    }
+    touch(rows) {this.rows=rows;const version=this.currentVersion();
+      if(version&&version===this.contentVersion)return;
+      this.contentVersion=version;this.seq++;this.dirty=version?version!==this.versions?.synced:true;}
     snapshot(nonce, action='apply', request=null) {
       if(this.pending)throw new Error('正在套用上一批變更，請稍候。');
       this.pending={nonce,seq:this.seq};
-      return {session:this.session,base_revision:this.revision,nonce,action,request,seq:this.seq,photos:metadata(this.rows),
+      return {session:this.session,base_revision:this.revision,nonce,action,request,seq:this.seq,
+        ...(this.currentVersion()?{content_version:this.currentVersion()}:{}),photos:metadata(this.rows),
         overlays:clone(this.overlays),comparisons:metadata(this.comparisons),comparison_overlays:clone(this.comparisonOverlays),
         cover:clone(this.cover),music:clone(this.music),template_id:this.template,schema_version:4,imported_batches:[...this.imported]};
     }
     receive(rows, session, revision, response, overlays=[], comparisons=[], comparisonOverlays=[],cover=null,music=null) {
       if(this.session!==session) {
         this.session=session;this.revision=revision;this.seq=0;this.dirty=false;this.pending=null;this.deleted=[];this.imported=[];this.rows=rows;this.overlays=clone(overlays);this.comparisons=comparisons;this.comparisonOverlays=clone(comparisonOverlays);
-        this.cover=clone(cover);this.music=clone(music);return {fresh:true};
+        this.cover=clone(cover);this.music=clone(music);this.versionContext=null;this.versions=null;this.contentVersion=null;return {fresh:true};
       }
       if(revision<this.revision)return {stale:true};
       const matched=this.pending&&response?.nonce===this.pending.nonce;
@@ -49,7 +59,8 @@
     persisted(selection={}) {
       return {session:this.session,revision:this.revision,seq:this.seq,dirty:this.dirty,pending:this.pending,
         deleted:this.deleted,imported:this.imported,rows:metadata(this.rows),overlays:clone(this.overlays),
-        comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),coverSeconds:this.coverSeconds,music:clone(this.music),template:this.template,selection};
+        comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),coverSeconds:this.coverSeconds,music:clone(this.music),template:this.template,
+        versionContext:this.versionContext,versions:this.versions,contentVersion:this.contentVersion,selection};
     }
   }
   const api={DraftState,metadata};

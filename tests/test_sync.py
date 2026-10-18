@@ -29,7 +29,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(state["revision"],2)
         self.assertEqual(len(state["photos"][0].labels),10)
         self.assertEqual(state["photos"][0].labels[3]["text"],"修改文字")
-        self.assertIsNone(state["output"])
+        self.assertEqual(state["output"],b"old video")
         stale=event(state,"old");stale["base_revision"]=1;stale["photos"][0]["labels"]=[]
         consume_editor_event(state,stale)
         self.assertFalse(state["editor_response"]["ok"])

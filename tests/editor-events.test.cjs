@@ -15,6 +15,7 @@ const StudioComparison=require('../frontend/comparison-model.js');
 const StudioSafeArea=require('../frontend/safe-area.js');
 const StudioMusic=require('../frontend/music.js');
 const StudioLabelTiming=require('../frontend/label-timing.js');
+const StudioVersion=require('../frontend/content-version.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map();let serial=0,draws=0;
   function element(tag='div') {
@@ -34,7 +35,7 @@ function environment(storage=new Map()) {
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioDraft:{DraftState,metadata},StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
+    StudioDraft:{DraftState,metadata},StudioVersion,StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
@@ -454,4 +455,34 @@ test('LOGO時間軸拖移與左右裁切均本地，開關封面平移，重建�
   rebuilt.elements.get('bodyLogo').checked=true;rebuilt.elements.get('bodyLogo').onchange();
   rebuilt.elements.get('logoAutoTime').checked=true;rebuilt.elements.get('logoAutoTime').onchange();
   assert.equal(rebuilt.elements.get('logoStart').value,.3);assert.equal(rebuilt.elements.get('logoEnd').value,8.3);
+});
+
+test('即時版本狀態不送Python，舊ACK不蓋新版本，工作區檢查只送一次且取消保留',async()=>{
+  const env=environment(),get=id=>env.context.document.getElementById(id);
+  const schema=JSON.parse(fs.readFileSync('frontend/content-schema.json','utf8'));
+  const context={schema,photos:{p1:'hash',p2:'hash2'},assets:[],music:null,width:1080,engine:'renderer'};
+  const project={photos:env.rows()},initial=StudioVersion.digest(StudioVersion.document(project,context));
+  const versions={context,synced:initial,mp4:initial,zip:initial,backup:initial};
+  await env.receive({project,versions});assert.equal(get('applyChanges').disabled,true);
+  assert.equal(vm.runInContext('draft.contentVersion',env.context),initial);
+  get('addLabel').onclick();get('text').value='送出的標籤';get('text').oninput();
+  const seq=vm.runInContext('draft.seq',env.context);get('text').onchange();assert.equal(vm.runInContext('draft.seq',env.context),seq);
+  assert.equal(env.changes().length,0);assert.ok(get('versionStatus').textContent.includes('舊版本，需要重新輸出'));
+  const pending=get('applyChanges').onclick(),sent=env.changes()[0].value;
+  get('text').value='同步途中更新';get('text').oninput();const newest=vm.runInContext('draft.contentVersion',env.context);
+  const remote=env.rows().map(row=>({...row,...sent.photos.find(p=>p.id===row.id)}));
+  await env.receive({project:{...project,photos:remote},versions:{...versions,synced:sent.content_version},revision:2,
+    response:{nonce:sent.nonce,ok:true,content_version:sent.content_version}});await pending;
+  assert.equal(vm.runInContext('draft.contentVersion',env.context),newest);
+  assert.equal(vm.runInContext('draft.rows[0].labels[0].text',env.context),'同步途中更新');
+  await env.receive({project,versions:{...versions,synced:sent.content_version},revision:2,guard_request:{id:'guard-1',action:'clear',status:'checking'}});
+  const probes=env.changes().filter(m=>m.value.action==='inspect_guard');assert.equal(probes.length,1);assert.equal(probes[0].value.content_version,newest);
+  assert.equal(get('addLabel').disabled,true);
+  await env.receive({project,versions:{...versions,synced:sent.content_version},revision:2,guard_request:{id:'guard-1',action:'clear',status:'confirm'}});
+  assert.equal(env.changes().filter(m=>m.value.action==='inspect_guard').length,1);
+  await env.receive({project,versions:{...versions,synced:sent.content_version},revision:2,guard_request:null});
+  assert.equal(get('addLabel').disabled,false);assert.equal(vm.runInContext('draft.contentVersion',env.context),newest);
+  assert.equal(vm.runInContext('draft.rows[0].labels[0].text',env.context),'同步途中更新');
+  const rebuilt=environment(env.storage);await rebuilt.receive({project,versions:{...versions,synced:sent.content_version},revision:2});
+  assert.equal(vm.runInContext('draft.contentVersion',rebuilt.context),newest);
 });
