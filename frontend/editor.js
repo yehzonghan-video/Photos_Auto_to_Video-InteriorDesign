@@ -22,13 +22,14 @@ const deletionHistory=new StudioPhotoHistory.History();
 let recoverableMedia=[],pendingDeletion=null;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const isCompare=()=>draft.template==='compare';
-const bodySequence=()=>isCompare()?draft.comparisons:photos;
+const isTour=()=>draft.template==='tour';
+const bodySequence=()=>isTour()?(draft.tour?.clips||[]):isCompare()?draft.comparisons:photos;
 const coverDuration=()=>photos.length?StudioCover.duration(draft.cover):0;
 const coverScene=()=>({id:'project-cover',type:'cover',name:'片頭封面',duration:coverDuration(),labels:[],image:photos.find(p=>p.id===draft.cover?.photo_id)?.image});
 const sequence=()=>coverDuration()?[coverScene(),...bodySequence()]:bodySequence();
-const projectOverlays=()=>isCompare()?draft.comparisonOverlays:draft.overlays;
+const projectOverlays=()=>isTour()?draft.tour.overlays:isCompare()?draft.comparisonOverlays:draft.overlays;
 const photo = () => sequence().find(p => p.id === selectedPhoto) || sequence()[0];
-const cropPhoto=()=>isCompare()?photo()?.[comparisonEditor.cropSide+'_crop']:photo();
+const cropPhoto=()=>isTour()?photo()?.crop:isCompare()?photo()?.[comparisonEditor.cropSide+'_crop']:photo();
 const label = () => photo()?.labels.find(l => l.id === selectedLabel);
 const total = () => sequence().reduce((sum, p) => sum + Number(p.duration), 0);
 function status(message, error = false) { $('status').textContent = message; $('status').classList.toggle('error', error); }
@@ -43,7 +44,7 @@ function validProject() {
   if (total() > 120) { status('影片總長最多 120 秒，請縮短照片秒數。', true); return false; }
   const comparisonError=StudioComparison.validate(draft.comparisons,photos);
   if(comparisonError){status(comparisonError,true);return false;}
-  for (const p of [...photos,...draft.comparisons]) {
+  for (const p of [...photos,...draft.comparisons,...(draft.tour?.clips||[])]) {
     if (!Number.isFinite(p.duration) || p.duration < 1 || p.duration > 20) {status('每張照片需為 1～20 秒。', true); return false;}
     for (const l of p.labels) {
       if (!l.text.trim() || l.text.length > 80 || !Number.isFinite(l.start) || !Number.isFinite(l.end) || !Number.isFinite(l.enter) ||
@@ -89,6 +90,7 @@ function markEdited(persist=true) {
   const priorPhoto=selectedPhoto;
   clearBrowserResult();
   comparisonEditor.prune();
+  if(draft.tour){const ids=new Set(photos.map(p=>p.id));draft.tour.clips=draft.tour.clips.filter(c=>c.kind!=='photo'||ids.has(c.source));StudioTimeline.clampOverlays(draft.tour.overlays,StudioTimeline.total(draft.tour.clips)+coverDuration());}
   StudioCover.ensureSource(draft.cover,photos);
   if(draft.cover?.body?.enabled)bodyEditor.position(draft.cover.body.x,draft.cover.body.y);
   StudioBody.fit(draft.cover?.body,coverDuration(),total());
@@ -141,6 +143,7 @@ window.addEventListener('message', async event => {
   const args = event.data.args;
   const generation = ++renderGeneration;
   try {
+    if(draft.session===args.session&&args.revision<draft.revision)return;
     let rows = [...args.project.photos];
     StudioCover.configure(args.project.cover_assets?.layout);
     StudioBody.configure(args.project.body_assets?.layout);
@@ -168,6 +171,8 @@ window.addEventListener('message', async event => {
     const legacyCover=draft.session===args.session&&draft.cover===null&&(draft.dirty||draft.pending);
     const priorCoverSeconds=draft.cover?.enabled?(draft.coverSeconds??.5):0;
     const localCoverTiming=draft.session===args.session&&(draft.dirty||draft.pending);
+    const keepTour=draft.session===args.session&&(draft.dirty||draft.pending)&&!(draft.pending&&args.response?.nonce===draft.pending.nonce&&args.response.ok&&draft.seq===draft.pending.seq);
+    if(!keepTour)draft.tour=JSON.parse(JSON.stringify(args.project.tour||StudioTour.fresh()));
     const result=draft.receive(rows,args.session,args.revision,args.response,args.project.overlays||[],
                               args.project.comparisons||[],args.project.comparison_overlays||[],args.project.cover||null,args.project.music||null);
     if(result.stale)return;
@@ -183,6 +188,10 @@ window.addEventListener('message', async event => {
       if(StudioLabelTiming.delay(l,p.duration))delayed=true;
     if(delayed)draft.touch(photos);
     draft.template=args.project.template_id||'items';
+    draft.tour??=StudioTour.fresh();
+    await tourEditor.receive(args.project.floor_plan,args.project.videos||[],args.project.tour_layout,loadImage);
+    if(generation!==renderGeneration)return;
+    if(isTour()&&StudioTour.reconcile(draft.tour,draft.rows,args.project.videos||[],()=>crypto.randomUUID()))draft.touch(draft.rows);
     if(legacyCover&&draft.cover?.enabled){for(const slot of [draft.overlays,draft.comparisonOverlays])for(const o of slot)o.start+=coverDuration();time+=coverDuration();draft.touch(photos);}
     else if(localCoverTiming&&draft.dirty&&draft.cover?.enabled&&priorCoverSeconds!==coverDuration()){
       const delta=coverDuration()-priorCoverSeconds;
@@ -277,8 +286,8 @@ function buildPhotos() {
   const active=bodySequence();active.forEach((p, index) => {
     const item = button('', () => selectMaterial({type:'photo',id:p.id,source:p.id,start:photoOffset(p.id)}), 'photo' + (p.id === selectedPhoto ? ' active' : ''));
     item.draggable = true; item.dataset.photoId = p.id; item.title = p.name;
-    const img = document.createElement('img'); img.src = p.image||photos.find(row=>row.id===p.after_id)?.image||''; img.alt = p.name;
-    const caption = document.createElement('span'); caption.textContent = `${index+1} · ${p.duration}s · ${p.name}`;
+    const img = document.createElement('img'); img.src = p.image||photos.find(row=>row.id===(isTour()?p.source:p.after_id))?.image||tourEditor.videos.get(p.source)?.poster||''; img.alt = p.name;
+    const caption = document.createElement('span'); caption.textContent = `${index+1} · ${Number(p.duration.toFixed(2))}s · ${p.name}`;
     item.append(img, caption);
     item.ondragstart = e => {if(recording||preparing||serverBusy){e.preventDefault();return;} photoDragId=p.id; e.dataTransfer.setData('text/plain',p.id);};
     item.ondragover = e => {e.preventDefault(); item.classList.add('drag-over');};
@@ -292,7 +301,7 @@ function buildPhotos() {
     };
     $('photos').append(item);
   });
-  $('total').textContent = `${active.length} ${isCompare()?'組對比':'張'} · ${total().toFixed(1)} 秒`;
+  $('total').textContent = `${active.length} ${isTour()?'個導覽片段':isCompare()?'組對比':'張'} · ${total().toFixed(1)} 秒`;
   $('seek').max = Math.max(0, total() - 1/30);
 }
 function buildLabels() {
@@ -328,7 +337,8 @@ function fillForm() {
   bodyEditor.refresh();
   if(bodySelected||logoSelected)$('bodyPanel').open=true;
   comparisonEditor.refresh();
-  $('deletePhoto').textContent=isCompare()?'刪除對比片段':'刪除照片';
+  tourEditor.refresh();
+  $('deletePhoto').textContent=isTour()?'刪除導覽片段':isCompare()?'刪除對比片段':'刪除照片';
   $('edit').textContent=positioning?'結束文字定位輔助':'定位選取文字';
   $('edit').disabled=!label()||!canEdit();
   const target=replacementSource();
@@ -339,7 +349,7 @@ function fillForm() {
   for(const key of ['duration','fit','zoom','crop_x','crop_y','moveLeft','moveRight','deletePhoto','addLabel'])$(key).disabled=!photo()||photo().type==='cover'||recording||preparing||serverBusy;
   const p=photo(); if(!p){$('labelForm').hidden=true;$('overlayForm').hidden=true;return;}
   if(p.type==='cover'){$('labelForm').hidden=true;$('duration').value=coverDuration();$('photoNumber').textContent='片頭封面';pngEditor.refresh();return;}
-  if(document.activeElement!==$('duration'))$('duration').value=p.duration; $('photoNumber').textContent=`${sequence().findIndex(row=>row.id===p.id)+1} / ${sequence().length}`;
+  if(document.activeElement!==$('duration'))$('duration').value=Number(p.duration.toFixed(3)); $('photoNumber').textContent=`${sequence().findIndex(row=>row.id===p.id)+1} / ${sequence().length}`;
   for (const key of ['zoom','crop_x','crop_y']) $(key).value=cropPhoto()[key];
   $('fit').value=cropPhoto().fit || 'contain';
   for (const key of ['zoom','crop_x','crop_y']) $(key).disabled=recording || $('fit').value==='contain';
@@ -362,8 +372,8 @@ function focusSettings(){
   if(settingsFocus!==key){$('settingsPanel').scrollTop=0;settingsFocus=key;}
 }
 function replacementSource(){
-  const p=photo();if(!p||p.type==='cover')return null;
-  return isCompare()?photos.find(row=>row.id===p[comparisonEditor.cropSide+'_id']):p;
+  const p=photo();if(!p||p.type==='cover'||isTour()&&p.kind==='video')return null;
+  return isTour()?photos.find(row=>row.id===p.source):isCompare()?photos.find(row=>row.id===p[comparisonEditor.cropSide+'_id']):p;
 }
 $('replacePhoto').onclick=()=>{
   const p=replacementSource();if(!p||!canEdit()||draft.pending)return;
@@ -409,7 +419,12 @@ function draw() {
   const state=editing?{photo:photo(),local:time-photoOffset(photo()?.id)}:locate(time), p=state.photo;
   ctx.fillStyle='#000000';ctx.fillRect(0,0,W,H); if(!p){$('clock').textContent='0.0 / 0.0 s';$('seek').value=0;timeline.draw();return;}
   const image=imageCache.get(p.id);
+  if(!isTour()||p.kind!=='video')tourEditor.stop();
   if(p.type==='cover')coverEditor.draw(ctx);
+  else if(isTour()){
+    if(p.kind==='video')tourEditor.drawVideo(ctx,p,state.local,playing);
+    else{const im=imageCache.get(p.source);if(im){const b=StudioPhoto.layout(im.naturalWidth,im.naturalHeight,W,H,p.crop);ctx.drawImage(im,b.sx,b.sy,b.sw,b.sh,b.dx,b.dy,b.dw,b.dh);}}
+  }
   else if(isCompare())comparisonEditor.draw(ctx,p,state.local,editing);
   else if(image) {
     const box=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,W,H,p);
@@ -437,6 +452,7 @@ function draw() {
       if(l.line){ctx.beginPath();ctx.arc(l.point_x*W,l.point_y*H,25,0,Math.PI*2);ctx.stroke();}ctx.restore();}
     }
   }
+  if(isTour()&&p.type!=='cover')tourEditor.drawPlan(ctx,p);
   $('mode').textContent=playing?'動畫播放中':positioning?'文字定位輔助（不影響影片時間）':'已暫停 · 可直接編輯'; $('clock').textContent=`${time.toFixed(1)} / ${total().toFixed(1)} s`;
   $('seek').value=time;
   timeline.draw();
@@ -494,7 +510,7 @@ $('canvas').addEventListener('keydown',e=>{
   draw();info();markEdited();
 });
 function followPlayhead(){const p=locate(time).photo;if(p&&p.id!==selectedPhoto){selectedPhoto=p.id;selectedLabel=null;bodySelected=false;logoSelected=false;pngEditor.selected=null;buildPhotos();buildLabels();fillForm();}}
-function stopPlayback(){const wasPlaying=playing;playGeneration++;playing=false;editing=!recording;musicPreparing=false;musicPlayer.stop();cancelAnimationFrame(raf);$('play').textContent='▶ 預覽影片';if(wasPlaying)followPlayhead();}
+function stopPlayback(){const wasPlaying=playing;playGeneration++;playing=false;editing=!recording;musicPreparing=false;musicPlayer.stop();tourEditor.stop();cancelAnimationFrame(raf);$('play').textContent='▶ 預覽影片';if(wasPlaying)followPlayhead();}
 function tick(now) {
   time=(now-startClock)/1000;
   if(time>=total()) {time=Math.max(0,total()-1/30);stopPlayback();fillForm();draw();persistDraft();if(recording&&recorder?.state==='recording')recorder.stop();else syncStatus();return;}
@@ -557,8 +573,8 @@ $('deleteLabel').onclick=()=>{const p=photo();p.labels=p.labels.filter(l=>l.id!=
 function refreshAfterDelete(){selectedPhoto=sequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;buildPhotos();buildLabels();fillForm();draw();comparisonEditor.library();$('undoPhoto').hidden=!deletionHistory.entry;}
 function deleteSource(id,confirmed=false){if(!canEdit()||draft.pending)return;
   const use=StudioPhotoHistory.impact(draft,id);if(!use)return;
-  if(!confirmed&&(use.clips||use.cover||use.labels)){
-    pendingDeletion=id;$('deleteNotice').textContent=`刪除影響：${use.clips}組前後對比、${use.cover?'封面來源':'不涉及封面'}、${use.labels}個附屬文字。相關配對將移除，獨立PNG保留（超出新片長部分截短）；可復原最近一次刪除。`;
+  if(!confirmed&&(use.clips||use.tour_clips||use.cover||use.labels)){
+    pendingDeletion=id;$('deleteNotice').textContent=`刪除影響：${use.clips}組前後對比、${use.tour_clips}個導覽片段、${use.cover?'封面來源':'不涉及封面'}、${use.labels}個來源附屬文字。相關配對與導覽片段將移除，獨立PNG保留（超出新片長部分截短）；可復原最近一次刪除。`;
     $('confirmPhotoDelete').hidden=$('cancelPhotoDelete').hidden=false;return;
   }
   draft.rows=photos;if(!deletionHistory.begin(draft,id))return;
@@ -572,7 +588,7 @@ $('undoPhoto').onclick=()=>{if(!canEdit()||draft.pending)return;
   try{deletionHistory.restore(draft,recoverableMedia);photos=draft.rows;markEdited();refreshAfterDelete();$('deleteNotice').textContent='已復原照片、順序、標籤及相關設定。';}
   catch(error){$('deleteNotice').textContent=error.message;}
 };
-$('deletePhoto').onclick=()=>{if(!canEdit())return;if(isCompare()){const i=draft.comparisons.findIndex(c=>c.id===selectedPhoto);if(i>=0){draft.comparisons.splice(i,1);markEdited();refreshAfterDelete();}}
+$('deletePhoto').onclick=()=>{if(!canEdit())return;if(isTour()){const i=draft.tour.clips.findIndex(c=>c.id===selectedPhoto);if(i>=0){draft.tour.clips.splice(i,1);markEdited();refreshAfterDelete();}}else if(isCompare()){const i=draft.comparisons.findIndex(c=>c.id===selectedPhoto);if(i>=0){draft.comparisons.splice(i,1);markEdited();refreshAfterDelete();}}
   else deleteSource(selectedPhoto);};
 $('applyChanges').onclick=()=>synchronize().catch(error=>status(error.message,true));
 function movePhoto(delta) {
@@ -586,6 +602,7 @@ function supportedMime() {
   return choices.find(m=>MediaRecorder.isTypeSupported(m))||null;
 }
 function support() {
+  if(isTour()){$('browserExport').disabled=true;$('support').textContent='空間導覽請使用下方FFmpeg輸出，確保影片原音與平面圖完整。';return;}
   const mime=supportedMime();$('browserExport').disabled=!mime||!!draft.pending||serverBusy||preparing;
   $('support').textContent=mime?'本機錄製，請保持頁面前景':'此瀏覽器未提供 H.264 MP4，請使用下方 FFmpeg 輸出';
 }
@@ -647,6 +664,7 @@ function selectMaterial(item){if(recording||preparing||serverBusy)return;stopPla
   else {pngEditor.selected=null;selectedPhoto=item.source;selectedLabel=item.type==='label'?item.id:null;time=item.start;}
   bodySelected=item.type==='body_title';logoSelected=item.type==='body_logo';
   buildPhotos();buildLabels();fillForm();draw();persistDraft();}
+const tourEditor=new StudioTourUI.TourEditor({data:()=>draft.tour||StudioTour.fresh(),photos:()=>photos,prefix:coverDuration,active:isTour,current:photo,locked:()=>!canEdit(),status,redraw:queueDraw,change:()=>{stopPlayback();markEdited();buildPhotos();buildLabels();fillForm();draw();}});
 const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photos,clips:()=>draft.comparisons,current:()=>photo()?.type==='cover'?null:photo(),
   active:isCompare,prefix:coverDuration,images:()=>imageCache,locked:()=>recording||preparing||serverBusy,status,
   replace:id=>{if(!canEdit())return;persistDraft();post('streamlit:setComponentValue',{value:{action:'replace_photo',nonce:crypto.randomUUID(),session:draft.session,base_revision:draft.revision,photo_id:id},dataType:'json'});},
@@ -657,7 +675,7 @@ const comparisonEditor=new StudioComparisonUI.ComparisonEditor({photos:()=>photo
 const pngEditor=new StudioPNG.PNGEditor({overlays:projectOverlays,assets:()=>assetMeta,images:()=>assetCache,
   locked:()=>recording||preparing||serverBusy,total,time:()=>time,status,
   select:o=>selectMaterial(o),changed:()=>{editing=true;stopPlayback();markEdited();fillForm();draw();}});
-const coverEditor=new StudioCover.CoverEditor({cover:()=>draft.cover,photos:()=>photos,images:()=>imageCache,slots:()=>[draft.overlays,draft.comparisonOverlays],
+const coverEditor=new StudioCover.CoverEditor({cover:()=>draft.cover,photos:()=>photos,images:()=>imageCache,slots:()=>[draft.overlays,draft.comparisonOverlays,...(draft.tour?[draft.tour.overlays]:[])],
   viewing:()=>photo()?.type==='cover',
   locked:()=>recording||preparing||serverBusy,status,choose:()=>selectMaterial({type:'cover',id:'project-cover',source:'project-cover',start:0}),
   change:()=>{stopPlayback();bodySelected=false;logoSelected=false;editing=true;selectedPhoto=coverDuration()?'project-cover':bodySequence()[0]?.id;selectedLabel=photo()?.labels[0]?.id;pngEditor.selected=null;time=0;markEdited();buildPhotos();buildLabels();fillForm();draw();}});

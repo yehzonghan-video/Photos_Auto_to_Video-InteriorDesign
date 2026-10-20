@@ -8,7 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 4
+EDITOR_UI_VERSION = 5
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -30,7 +30,7 @@ def apply_editor_event(photos, event, session, revision, request=None):
         raise ValueError("照片識別碼不正確。")
     # update_project 會先完整驗證所有欄位，成功後才一次套用。
     updated = update_project([known[ident] for ident in ids], rows)
-    if action in ("export", "save_project") and not updated:
+    if action in ("export", "save_project") and not updated and event.get('template_id')!='tour':
         raise ValueError("請保留至少一張照片再輸出或儲存專案。")
     return updated
 
@@ -111,6 +111,8 @@ def consume_editor_event(state, event):
         staged=apply_editor_event([replace(p) for p in bank],event,state["editor_session"],
                                   state["revision"],request["id"] if request else None)
         clips=validate_comparisons(event.get("comparisons",state.get("comparisons",[])),staged)
+        from .tour import validate_tour
+        tour=validate_tour(event.get('tour',state.get('tour')),staged,state.get('video_assets',{}),state.get('floor_plan'))
         raw_cover=event.get('cover',state.get('cover'))
         if isinstance(raw_cover,dict) and 'body' not in raw_cover and isinstance(state.get('cover'),dict):
             raw_cover={**raw_cover,'body':state['cover'].get('body')}  # 舊頁面事件不清除新的正文設定。
@@ -130,16 +132,18 @@ def consume_editor_event(state, event):
         music=validate_music(event.get('music',state.get('music')),state.get('music_asset'))
         prefix=DURATION if cover['enabled'] and staged else 0
         duration=sum(p.duration for p in staged)+prefix
-        if (sum(c['duration'] for c in clips) if template=='compare' else sum(p.duration for p in staged))+prefix>120:
+        if (sum(c['duration'] for c in (tour['clips'] if template=='tour' else clips)) if template in ('tour','compare') else sum(p.duration for p in staged))+prefix>120:
             raise ValueError('影片含片頭最長120秒，請縮短片段。')
+        tour['overlays']=validate_overlays(tour['overlays'],state.get('overlay_assets',{}),sum(c['duration'] for c in tour['clips'])+prefix)
         overlays = validate_overlays(event.get("overlays", state.get("overlays", [])),
                                      state.get("overlay_assets", {}), duration)
         comparison_overlays=validate_overlays(event.get("comparison_overlays",state.get("comparison_overlays",[])),
                                       state.get("overlay_assets",{}),sum(c["duration"] for c in clips)+prefix)
         if template=="compare" and event.get("action")=="export" and not clips:
             raise ValueError("請先新增一組前後配對再輸出。")
+        if template=='tour' and event.get('action')=='export' and not tour['clips']:raise ValueError('請先加入導覽片段。')
         proposal={**state,'photos':staged,'comparisons':clips,'cover':cover,'music':music,
-                  'overlays':overlays,'comparison_overlays':comparison_overlays}
+                  'overlays':overlays,'comparison_overlays':comparison_overlays,'tour':tour}
         accepted_version=project_version(proposal)
         if event.get('content_version') is not None and event['content_version']!=accepted_version:
             raise ValueError('草稿版本與伺服器資料不一致，內容已保留，請等待畫面更新後再次套用。')
@@ -153,6 +157,7 @@ def consume_editor_event(state, event):
         state["comparison_overlays"]=comparison_overlays
         state['cover']=cover
         state['music']=music
+        state['tour']=tour
         acknowledgements = event.get("imported_batches", [])
         if isinstance(acknowledgements, list):
             state["ai_imports"] = [batch for batch in state.get("ai_imports", [])

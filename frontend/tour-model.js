@@ -1,0 +1,11 @@
+(function(root){
+  let L=typeof module!=='undefined'?require('./tour-layout.json'):null;const clone=v=>JSON.parse(JSON.stringify(v)),snap=v=>Math.round(v*30)/30;
+  function fresh(){return {visible:true,size:.3,opacity:1,dot_size:12,rooms:[],clips:[],overlays:[],seen_sources:[],plan_id:null};}
+  function box(plan,t){const pad=Math.max(L.padding,Math.ceil(t.dot_size+2));let w=Math.round(1080*t.size),h=Math.round(w*plan.height/plan.width);if(h>L.max_height){h=L.max_height;w=Math.round(h*plan.width/plan.height);}w=Math.max(1,w);h=Math.max(1,h);return {x:L.safe.right-pad-w,y:L.safe.top+pad,w,h,pad};}
+  function make(s,kind,id){const duration=kind==='video'?Math.min(4,s.duration):s.duration;return {id:id(),type:'tour_clip',kind,source:s.id,name:s.name,room_id:null,duration,in:0,out:duration,muted:true,volume:1,crop:{fit:s.fit||'contain',zoom:s.zoom||1,crop_x:s.crop_x??.5,crop_y:s.crop_y??.5},labels:clone(s.labels||[]).map(l=>({...l,id:id()}))};}
+  function reconcile(t,photos,videos,id){const bank=new Set(photos.map(p=>p.id).concat(videos.map(v=>v.id)));t.clips=t.clips.filter(c=>bank.has(c.source));let added=0;t.seen_sources=t.seen_sources.filter(s=>bank.has(s));
+    for(const [kind,list] of [['photo',photos],['video',videos]])for(const s of list){if(t.seen_sources.includes(s.id))continue;if(t.clips.some(c=>c.source===s.id)){t.seen_sources.push(s.id);continue;}const c=make(s,kind,id);
+      if(t.clips.length<40&&t.clips.reduce((n,c)=>n+c.duration,0)+c.duration<=119.7){t.clips.push(c);added++;t.seen_sources.push(s.id);}}return added;}
+  function trim(c,start,end,limit){start=snap(start);end=snap(end);if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end>limit+1e-6||end-start<1||end-start>20)throw new Error('影片片段需1～20秒，起訖須在來源時長內。');c.in=start;c.out=end;c.duration=snap(end-start);for(const l of c.labels){l.start=Math.min(l.start,c.duration-1/30);l.end=Math.max(l.start+1/30,Math.min(l.end,c.duration));l.enter=Math.min(l.enter,l.end-l.start);}}
+  const api={fresh,box,make,reconcile,trim,room:(t,id)=>t.rooms.find(r=>r.id===id&&!r.needs_review)||null,configure:l=>{if(l)L=l;}};if(typeof module!=='undefined')module.exports=api;else root.StudioTour=api;
+})(typeof window!=='undefined'?window:this);

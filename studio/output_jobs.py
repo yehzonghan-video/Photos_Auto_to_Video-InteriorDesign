@@ -27,6 +27,8 @@ def _expire_results():
 def snapshot(state):
     """只複製製片資料；不可變的媒體 bytes 共用，不複製Secrets或整個Session State。"""
     return dict(photos=[replace(p,labels=deepcopy(p.labels)) for p in state['photos']],
+                tour=deepcopy(state.get('tour')),floor_plan=replace(state['floor_plan']) if state.get('floor_plan') else None,
+                video_assets={k:replace(v) for k,v in state.get('video_assets',{}).items()},
                 overlay_assets={k:replace(a) for k,a in state.get('overlay_assets',{}).items()},
                 music_asset=replace(state['music_asset']) if state.get('music_asset') else None,
                 template_mode=state.get('template_mode','items'),video_width=state.get('video_width',1080),
@@ -45,9 +47,10 @@ def _run(source, kind, version, progress):
     from .export import export_video
     width=source['video_width'];compare=source['template_mode']=='compare'
     data=export_video(source['photos'],width,width*16//9,progress=progress,
-        overlays=source['comparison_overlays'] if compare else source['overlays'],
+        overlays=source['tour']['overlays'] if source['template_mode']=='tour' else source['comparison_overlays'] if compare else source['overlays'],
         assets=source['overlay_assets'],template=source['template_mode'],comparisons=source['comparisons'],
-        cover=source['cover'],music=source['music'],music_asset=source['music_asset'])
+        cover=source['cover'],music=source['music'],music_asset=source['music_asset'],
+        **(dict(tour=source['tour'],floor_plan=source['floor_plan'],videos=source['video_assets']) if source['template_mode']=='tour' else {}))
     return dict(data=data,seconds=round(time.monotonic()-started,1))
 
 

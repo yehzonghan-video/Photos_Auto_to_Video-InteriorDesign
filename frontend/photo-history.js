@@ -2,11 +2,11 @@
 (function(root){
   const clone=v=>JSON.parse(JSON.stringify(v));
   const clean=p=>{const {image,tiles,...row}=p;return clone(row);};
-  function state(d){return {rows:d.rows.map(clean),comparisons:d.comparisons.map(clean),cover:clone(d.cover),overlays:clone(d.overlays),comparisonOverlays:clone(d.comparisonOverlays)};}
+  function state(d){return {rows:d.rows.map(clean),comparisons:d.comparisons.map(clean),cover:clone(d.cover),overlays:clone(d.overlays),comparisonOverlays:clone(d.comparisonOverlays),tour:clone(d.tour??null)};}
   const canonical=v=>v&&typeof v==='object'?(Array.isArray(v)?v.map(canonical):Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])]))):v;
   const signature=d=>d.currentVersion?.()||JSON.stringify(canonical(state(d)));
   function impact(d,id){const p=d.rows.find(p=>p.id===id);if(!p)return null;
-    return {clips:d.comparisons.filter(c=>c.before_id===id||c.after_id===id).length,cover:d.cover?.photo_id===id,labels:p.labels.length};}
+    return {clips:d.comparisons.filter(c=>c.before_id===id||c.after_id===id).length,tour_clips:(d.tour?.clips||[]).filter(c=>c.kind==='photo'&&c.source===id).length,cover:d.cover?.photo_id===id,labels:p.labels.length};}
   class History{
     constructor(){this.entry=null;this.preview=null;this.restored=null;}
     begin(d,id){const p=d.rows.find(p=>p.id===id);if(!p)return false;this.entry={id,before:state(d),after:null};this.preview=p;this.restored=null;return true;}
@@ -18,7 +18,7 @@
       if(!p?.image)throw new Error('復原來源已失效，請從ZIP還原或重新上傳。');
       const images=new Map(d.rows.concat([p]).map(p=>[p.id,p]));
       d.rows=e.before.rows.map(row=>({...images.get(row.id),...clone(row)}));
-      for(const k of ['comparisons','cover','overlays','comparisonOverlays'])d[k]=clone(e.before[k]);
+      for(const k of ['comparisons','cover','overlays','comparisonOverlays'])d[k]=clone(e.before[k]);if(e.before.tour)d.tour=clone(e.before.tour);
       d.deleted=d.deleted.filter(id=>id!==e.id);this.restored=e.id;this.entry=null;this.preview=null;return e.id;
     }
     persisted(){return {entry:this.entry,restored:this.restored};}

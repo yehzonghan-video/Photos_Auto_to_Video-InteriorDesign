@@ -15,9 +15,10 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 4:
+    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 5:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
+    from studio.rendering import font_path,template_config
     from studio.cover import new_cover, DURATION
     from studio.music import new_music, load_music, MAX_MUSIC_UPLOAD_MB
     from studio.project_ui import prepare_download, import_panel, download_panel
@@ -54,6 +55,8 @@ defaults = dict(photos=[], uploader_epoch=0, output=None, project_payload=None,
                 photo_upload_epochs={"general":0,"before":0,"after":0},cover=new_cover(),
                 music=new_music(),music_asset=None,music_epoch=0,
                 project_archive=None,project_import_epoch=0,video_width=1080)
+from studio.tour import new_tour
+defaults.update(tour=new_tour(),floor_plan=None,video_assets={})
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -122,7 +125,9 @@ def clear_workspace():
     state.update(photos=[],editor_session=uuid.uuid4().hex,editor_assets={},editor_response=None,
                  editor_seen=[],pending_export=None,editor_busy=False,output=None,output_seconds=None,
                  project_archive=None,overlays=[],comparisons=[],comparison_overlays=[],cover=new_cover(),
-                 music=new_music(),music_asset=None)
+                 music=new_music(),music_asset=None,tour=new_tour(),floor_plan=None,video_assets={})
+    for key in ('tour_plan_receipt','tour_video_receipts'):state.pop(key,None)
+    for key in ('tour_video_epoch','tour_plan_epoch'):state[key]=state.get(key,0)+1
     state.overlay_assets,state.asset_warnings=discover_assets()
     for key in ('music_epoch','png_epoch','uploader_epoch'):state[key]+=1
     state.photo_upload_epochs={role:epoch+1 for role,epoch in state.photo_upload_epochs.items()}
@@ -175,10 +180,10 @@ with st.sidebar:
     st.caption("登出會清除目前工作階段，請先下載影片或專案檔。")
     import_panel(st.session_state)
     protection.panel(st.session_state)
-    st.caption("第四階段 · 裝修前後對比")
+    st.caption("第五階段 · 空間導覽")
     st.markdown("照片 → 標籤 → 預覽 → MP4")
     st.divider()
-    st.selectbox("影片模板", ["items","compare"], key="template_mode",
+    st.selectbox("影片模板", ["items","compare","tour"], key="template_mode",
                  format_func=lambda key:template_config(key)["name"],
                  disabled=workspace_guarded())
     if st.session_state.last_template!=st.session_state.template_mode:
@@ -241,7 +246,9 @@ with columns[-1]:
     st.caption("最多 12 張 · 大照片自動最佳化\n\nJPG / PNG / WEBP")
 
 photos = st.session_state.photos
-if not photos:
+from studio.tour_ui import panel as tour_panel
+tour_panel(st.session_state,workspace_locked)
+if not photos and not st.session_state.video_assets and not st.session_state.floor_plan:
     st.info("先加入案例照片、載入測試示意圖，或從左側匯入專案檔，即可開始編輯。")
     st.stop()
 
@@ -323,7 +330,8 @@ try:
                  assets=st.session_state.overlay_assets, overlays=st.session_state.overlays,
                  comparisons=st.session_state.comparisons, template=st.session_state.template_mode,
                  comparison_overlays=st.session_state.comparison_overlays, cover=st.session_state.cover,
-                 music=st.session_state.music, music_asset=st.session_state.music_asset)
+                 music=st.session_state.music, music_asset=st.session_state.music_asset,tour=st.session_state.tour,
+                 floor_plan=st.session_state.floor_plan,videos=st.session_state.video_assets)
     from studio.photo_history import preview as undo_preview
     request = st.session_state.pending_export
     editor(project=st.session_state.project_payload, session=st.session_state.editor_session,

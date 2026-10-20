@@ -35,10 +35,17 @@ def archive_filename(title):
 def build_archive(state):
     """只接受已同步的工作階段；檔案名稱使用流水號，避免帶入使用者路徑。"""
     photos = state['photos']
-    if not photos:
+    size=sum(len(p.original) for p in photos)+sum(len(v.data) for v in state.get('video_assets',{}).values())+sum(len(a.original) for a in state.get('overlay_assets',{}).values())
+    size+=len(state['floor_plan'].original) if state.get('floor_plan') else 0
+    size+=len(state['music_asset'].data) if state.get('music_asset') else 0
+    if size>MAX_ARCHIVE_BYTES-MAX_MANIFEST_BYTES:raise ValueError('專案素材接近或超過160 MB，請減少素材後再下載ZIP。')
+    tour=state.get('tour') or {}
+    extended=bool(state.get('floor_plan') or state.get('video_assets') or state.get('template_mode')=='tour'
+                  or tour.get('clips') or tour.get('rooms') or tour.get('overlays'))
+    if not photos and not (extended and (state.get('video_assets') or state.get('floor_plan'))):
         raise ValueError('請先加入照片再儲存專案。')
     from .versioning import project_version
-    manifest = dict(format=FORMAT, version=VERSION, content_version=project_version(state),created_at=datetime.now(timezone.utc).isoformat(),
+    manifest = dict(format=FORMAT, version=2 if extended else VERSION, content_version=project_version(state),created_at=datetime.now(timezone.utc).isoformat(),
                     video=dict(width=state.get('video_width', 1080), fps=30),
                     template_id=state.get('template_mode', 'items'), photos=[], assets=[], music_asset=None,
                     **{key: state[key] for key in PROJECT_KEYS})
@@ -60,6 +67,13 @@ def build_archive(state):
         if asset:
             manifest['music_asset'] = dict(id=asset.id, name=asset.name, truncated=asset.truncated,
                                            **add('media/music.wav', asset.data))
+        if extended:
+            from .tour import new_tour
+            manifest.update(tour=state.get('tour') or new_tour(),floor_plan=None,video_assets=[])
+            plan=state.get('floor_plan')
+            if plan:manifest['floor_plan']=dict(id=plan.id,name=plan.name,**add('media/plan/image',plan.original))
+            for i,v in enumerate(state.get('video_assets',{}).values()):
+                manifest['video_assets'].append(dict(id=v.id,name=v.name,**add(f'media/videos/{i:02d}.mp4',v.data)))
         raw = json.dumps(manifest, ensure_ascii=False, allow_nan=False, indent=2).encode('utf-8')
         if len(raw) > MAX_MANIFEST_BYTES:
             raise ValueError('專案設定過大，請減少標籤內容。')
@@ -104,7 +118,7 @@ def _load_archive(data):
     with zipfile.ZipFile(BytesIO(data)) as bundle:
         infos = bundle.infolist()
         names = [info.filename for info in infos]
-        if not 1 <= len(infos) <= MAX_PHOTOS + MAX_ASSETS + 2 or len(set(names)) != len(names):
+        if not 1 <= len(infos) <= MAX_PHOTOS + MAX_ASSETS + 6 or len(set(names)) != len(names):
             raise ValueError('專案檔案數量超過限制或含重複檔案。')
         if sum(info.file_size for info in infos) > MAX_ARCHIVE_BYTES:
             raise ValueError('專案解壓後超過160 MB，無法安全讀取。')
@@ -120,16 +134,16 @@ def _load_archive(data):
         manifest = json.loads(bundle.read('manifest.json').decode('utf-8'))
         if not isinstance(manifest, dict) or manifest.get('format') != FORMAT:
             raise ValueError('這不是案例影片工作室的專案檔。')
-        if type(manifest.get('version')) is not int or manifest['version'] != VERSION:
+        if type(manifest.get('version')) is not int or manifest['version'] not in (1,2):
             raise ValueError('此專案版本尚不支援，請使用相容版本的工作室開啟。')
         template = manifest.get('template_id')
         video = manifest.get('video')
-        if (template not in ('items', 'compare') or not isinstance(video, dict)
+        if (template not in ('items', 'compare','tour') or not isinstance(video, dict)
                 or type(video.get('width')) is not int or video['width'] not in (360,720,1080)
                 or type(video.get('fps')) is not int or video['fps'] != 30):
             raise ValueError('專案影片模板、解析度或影格率不正確。')
         rows, assets = manifest.get('photos'), manifest.get('assets')
-        if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_PHOTOS:
+        if not isinstance(rows, list) or not (0 if template=='tour' else 1) <= len(rows) <= MAX_PHOTOS:
             raise ValueError('專案需包含1～12張來源照片。')
         if not isinstance(assets, list) or len(assets) > MAX_ASSETS:
             raise ValueError('專案最多24個PNG素材。')
@@ -189,24 +203,36 @@ def _load_archive(data):
                     raise ValueError('專案BGM不是有效的標準WAV工作副本。')
             if type(meta.get('truncated')) is not bool:raise ValueError('BGM截取設定不正確。')
             music_asset = MusicAsset(_ident(meta.get('id')), _name(meta.get('name')), blob, count/44100, meta['truncated'])
+        from .tour import load_plan,new_tour
+        from .tour_video import load_video,MAX_VIDEOS,MAX_VIDEO_TOTAL,MAX_VIDEO_BYTES
+        plan=None;videos={};metas=manifest.get('video_assets',[])
+        if not isinstance(metas,list) or len(metas)>MAX_VIDEOS:raise ValueError('最多3個影片來源。')
+        meta=manifest.get('floor_plan')
+        if meta:
+            plan=load_plan(_name(meta.get('name')),media(meta,'media/plan/',8*1024*1024));plan.id=_ident(meta.get('id'))
+        for meta in metas:
+            ident=_ident(meta.get('id'))
+            if ident in videos:raise ValueError('影片ID重複。')
+            v=load_video(_name(meta.get('name')),media(meta,'media/videos/',MAX_VIDEO_BYTES),normalized=True);v.id=ident;videos[ident]=v
+        if sum(len(v.data) for v in videos.values())>MAX_VIDEO_TOTAL:raise ValueError('影片總量最多40 MB。')
         if used != set(names):raise ValueError('專案含有未列在設定中的額外檔案。')
 
         # 所有可編輯欄位共用既有驗證，並保持載入前的工作階段不動。
         from .sync import consume_editor_event
-        staged = dict(photos=photos, overlay_assets=bank, music_asset=music_asset,
+        staged = dict(photos=photos, overlay_assets=bank, music_asset=music_asset,floor_plan=plan,video_assets=videos,
                       template_mode=template, editor_session='project-import', revision=0)
         event = dict(session='project-import', base_revision=0, nonce='project-import', action='apply',
-                     photos=rows, template_id=template, **{key:manifest[key] for key in PROJECT_KEYS})
+                     photos=rows, template_id=template,tour=manifest.get('tour',new_tour()), **{key:manifest[key] for key in PROJECT_KEYS})
         consume_editor_event(staged, event)
         if not staged['editor_response']['ok']:
             raise ValueError('專案設定不正確：'+staged['editor_response']['message'])
-        for group in [*staged['photos'], *staged['comparisons']]:
+        for group in [*staged['photos'], *staged['comparisons'],*staged['tour']['clips']]:
             for label in group['labels'] if isinstance(group,dict) else group.labels:
                 # 專案時間為已儲存的定稿，不再次套用預設延後1秒。
                 if label.get('comparison_side') not in ('before','after'):
                     label['label_timing_version'] = 1
         return {**{key:staged[key] for key in (*PROJECT_KEYS,'photos','overlay_assets','music_asset')},
-                'template_mode':template, 'video_width':video['width']}
+                'tour':staged['tour'],'floor_plan':plan,'video_assets':videos,'template_mode':template, 'video_width':video['width']}
 
 
 def install_project(state, project):
@@ -216,14 +242,16 @@ def install_project(state, project):
     release(state)
     reset_versions(state)
     state.update({key:project[key] for key in (*PROJECT_KEYS,'photos','overlay_assets','music_asset','template_mode','video_width')})
+    from .tour import new_tour
+    state.update(tour=project.get('tour') or new_tour(),floor_plan=project.get('floor_plan'),video_assets=project.get('video_assets',{}))
     state.update(editor_session=uuid.uuid4().hex, revision=state.get('revision',0)+1,
                  last_template=project['template_mode'], output=None, output_seconds=None, project_payload=None,
                  editor_assets={}, editor_response=None, editor_seen=[], pending_export=None, editor_busy=False,
                  project_archive=None, ai_cache={}, ai_results={}, ai_reports=[], ai_imports=[],
                  ai_queue=[], ai_delivered={}, ai_pending={}, asset_warnings=[])
-    for key in ('studio_editor','render_job','project_save_job','ai_chosen','ai_consent','ai_force','ai_refresh_requested','replacement_request','photo_receipts'):
+    for key in ('studio_editor','render_job','project_save_job','ai_chosen','ai_consent','ai_force','ai_refresh_requested','replacement_request','photo_receipts','tour_plan_receipt','tour_video_receipts'):
         state.pop(key, None)
-    for key in ('uploader_epoch','png_epoch','music_epoch','project_import_epoch'):
+    for key in ('uploader_epoch','png_epoch','music_epoch','project_import_epoch','tour_plan_epoch','tour_video_epoch'):
         state[key] = state.get(key,0)+1
     state['photo_upload_epochs'] = {role:state.get('photo_upload_epochs',{}).get(role,0)+1 for role in ('general','before','after')}
     # 原始ZIP已存在；重新驗證後計算本機內容版本，不相信檔案自稱的版本或備份狀態。

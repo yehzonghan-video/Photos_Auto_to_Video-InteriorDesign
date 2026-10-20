@@ -12,7 +12,7 @@
     draw(){
       const h=this.hooks,p=h.photos(),prefix=h.offset?.()||0,length=StudioTimeline.total(p)+prefix,all=StudioTimeline.items(p,h.overlays(),prefix,h.title?.(),h.logo?.());
       this.length=length;this.width=Math.round(Math.max(600,this.canvas.parentElement?.clientWidth||900)*this.zoom);
-      const tracks=[{name:p[0]?.type==='comparison'?'對比':'照片',color:'#5d7760',rows:1,clips:all.filter(i=>['photo','comparison','cover'].includes(i.type)).map(item=>({item,lane:0}))},
+      const tracks=[{name:p[0]?.type==='tour_clip'?'空間導覽':p[0]?.type==='comparison'?'對比':'照片',color:'#5d7760',rows:1,clips:all.filter(i=>['photo','comparison','video','cover'].includes(i.type)).map(item=>({item,lane:0}))},
         {name:'正文',color:'#a34b63',...StudioTimeline.lanes(all.filter(i=>i.type==='body_title'))},
         {name:'LOGO',color:'#467e8d',...StudioTimeline.lanes(all.filter(i=>i.type==='body_logo'))},
         {name:'文字',color:'#b37b44',...StudioTimeline.lanes(all.filter(i=>i.type==='label'))},

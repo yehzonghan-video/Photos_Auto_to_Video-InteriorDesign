@@ -8,5 +8,8 @@
   "overlay": {"id":"", "type":"png", "source":"", "name":"", "start":0, "duration":3, "layer":20, "x":0.5, "y":0.5, "width":0.3, "scale":1, "rotation":0, "opacity":1, "animation":"fade", "exit_animation":"fade", "enter":0.5, "exit":0.5},
   "cover": {"enabled":false, "title":"室內設計案例", "photo_id":"", "color":"#ffffff", "font_size":120},
   "body": {"enabled":true, "logo_enabled":true, "follow_cover":true, "title":"室內設計案例", "color":"#ffffff", "font_size":100, "x":0.5, "y":0.245, "auto_timing":true, "start":0, "end":null, "logo_auto_timing":true, "logo_start":0, "logo_end":null},
-  "music": {"enabled":true, "source":null, "volume":0.5, "fade_out":1, "loop":true}
+  "music": {"enabled":true, "source":null, "volume":0.5, "fade_out":1, "loop":true},
+  "tour": {"visible":true,"size":0.3,"opacity":1,"dot_size":12},
+  "room": {"id":"","name":"","x":0.5,"y":0.5,"needs_review":false},
+  "tour_clip": {"id":"","type":"tour_clip","kind":"photo","source":"","name":"","room_id":null,"duration":4,"in":0,"out":4,"muted":true,"volume":1}
 }

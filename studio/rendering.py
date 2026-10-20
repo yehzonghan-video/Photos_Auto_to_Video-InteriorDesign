@@ -10,12 +10,13 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from .animation import pose
 
 ROOT = Path(__file__).resolve().parents[1]
+BGM_API_VERSION = 10
 W, H = 1080, 1920
 
 
 def template_config(name="items"):
     # 只允許程式註冊的模板，避免任意路徑讀取。
-    if name not in ("items", "compare"):
+    if name not in ("items", "compare", "tour"):
         raise ValueError("此模板尚未提供。")
     return json.loads((ROOT / "templates" / f"{name}.json").read_text(encoding="utf-8"))
 
@@ -40,6 +41,10 @@ def photo_image(photo):
 
 def crop_photo(photo, width=W, height=H):
     source = photo_image(photo)
+    return fit_image(source,photo,width,height)
+
+
+def fit_image(source,photo,width=W,height=H):
     if getattr(photo, "fit", "contain") == "contain":
         # 完整照片等比例置中；留黑邊時不套用會切掉照片的縮放與裁切。
         factor = min(width / source.width, height / source.height)

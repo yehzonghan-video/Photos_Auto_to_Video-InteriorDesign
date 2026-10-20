@@ -71,7 +71,14 @@ def replace_photo(state, target_id, file, event_id):
                 for label in clip['labels']:
                     if label.get('source') == 'gemini':
                         label['needs_review'] = True
+    tour=deepcopy(state.get('tour'))
+    if changed_image and tour:
+        for clip in tour['clips']:
+            if clip['kind']=='photo' and clip['source']==target_id:
+                for label in clip['labels']:
+                    if label.get('source')=='gemini':label['needs_review']=True
     proposed = fit_session([fresh if p.id == target_id else p for p in state['photos']])
     state['photos'], state['comparisons'] = proposed, clips
+    if tour is not None:state['tour']=tour
     refresh(state)
     return _remember(state, event_id, dict(added=[], errors=[], replayed=False))

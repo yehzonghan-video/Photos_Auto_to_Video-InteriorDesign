@@ -15,7 +15,7 @@
       ...remote.filter(row => !old.has(row.id))];
   }
   class DraftState {
-    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];this.overlays=[];this.comparisons=[];this.comparisonOverlays=[];this.template='items';this.cover=null;this.coverSeconds=null;this.music=null;}
+    constructor() {this.session=null;this.revision=-1;this.seq=0;this.dirty=false;this.pending=null;this.rows=[];this.deleted=[];this.imported=[];this.overlays=[];this.comparisons=[];this.comparisonOverlays=[];this.template='items';this.cover=null;this.coverSeconds=null;this.music=null;this.tour=null;}
     restore(saved, session) {
       if (!saved || saved.session!==session || !Array.isArray(saved.rows)) return false;
       Object.assign(this, saved); this.rows=clone(saved.rows);return true;
@@ -35,7 +35,7 @@
       return {session:this.session,base_revision:this.revision,nonce,action,request,seq:this.seq,
         ...(this.currentVersion()?{content_version:this.currentVersion()}:{}),photos:metadata(this.rows),
         overlays:clone(this.overlays),comparisons:metadata(this.comparisons),comparison_overlays:clone(this.comparisonOverlays),
-        cover:clone(this.cover),music:clone(this.music),template_id:this.template,schema_version:4,imported_batches:[...this.imported]};
+        cover:clone(this.cover),music:clone(this.music),tour:clone(this.tour),template_id:this.template,schema_version:4,imported_batches:[...this.imported]};
     }
     receive(rows, session, revision, response, overlays=[], comparisons=[], comparisonOverlays=[],cover=null,music=null) {
       if(this.session!==session) {
@@ -59,6 +59,8 @@
         const changed=new Set(this.rows.filter(p=>p.content_hash&&rows.some(r=>r.id===p.id&&r.content_hash!==p.content_hash)).map(p=>p.id));
         for(const c of this.comparisons)if(changed.has(c.before_id)||changed.has(c.after_id))
           for(const l of c.labels)if(l.source==='gemini')l.needs_review=true;
+        for(const c of this.tour?.clips||[])if(c.kind==='photo'&&changed.has(c.source))
+          for(const l of c.labels)if(l.source==='gemini')l.needs_review=true;
         this.rows=merge(this.rows,rows.filter(row=>!this.deleted.includes(row.id)));
       }else {this.rows=rows;this.overlays=clone(overlays);this.comparisons=comparisons;this.comparisonOverlays=clone(comparisonOverlays);}
       this.revision=revision;
@@ -70,7 +72,7 @@
       return {session:this.session,revision:this.revision,seq:this.seq,dirty:this.dirty,pending:this.pending,
         deleted:this.deleted,imported:this.imported,rows:metadata(this.rows),overlays:clone(this.overlays),
         comparisons:metadata(this.comparisons),comparisonOverlays:clone(this.comparisonOverlays),cover:clone(this.cover),coverSeconds:this.coverSeconds,music:clone(this.music),template:this.template,
-        versionContext:this.versionContext,versions:this.versions,contentVersion:this.contentVersion,selection};
+        tour:clone(this.tour),versionContext:this.versionContext,versions:this.versions,contentVersion:this.contentVersion,selection};
     }
   }
   const api={DraftState,metadata};

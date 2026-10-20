@@ -69,12 +69,18 @@ def document(data, context):
     cover['body']=body
     names={a['id']:a['name'] for a in context.get('assets',[])}
     def overlays(rows):return [{**normalize(o,'overlay'),'name':names.get(o.get('source'),o.get('name',''))} for o in rows]
-    return dict(schema='interior-content-v1',photos=photos,comparisons=clips,cover=cover,
+    result=dict(schema='interior-content-v1',photos=photos,comparisons=clips,cover=cover,
         overlays=overlays(data.get('overlays',[])),
         comparison_overlays=overlays(data.get('comparison_overlays',[])),
         music=normalize(data.get('music'),'music'),template_id=data.get('template_id','items'),
         assets=sorted(context.get('assets',[]),key=lambda a:a['id']),music_asset=context.get('music'),
         video=dict(width=context.get('width',1080),fps=30),engine=context.get('engine','unknown'))
+    tour=data.get('tour') or {}
+    if data.get('template_id')=='tour' or tour.get('rooms') or tour.get('clips') or context.get('floor_plan') or context.get('videos'):
+        result['tour']={**normalize(tour,'tour'),'rooms':[normalize(r,'room') for r in tour.get('rooms',[])],
+            'clips':[{**normalize(c,'tour_clip'),'crop':normalize(c.get('crop'),'crop'),'labels':labels(c.get('labels'))} for c in tour.get('clips',[])],
+            'overlays':overlays(tour.get('overlays',[])),'plan':context.get('floor_plan'),'videos':context.get('videos',[]),'layout':context.get('tour_layout')}
+    return result
 
 
 @lru_cache(maxsize=1)
@@ -105,17 +111,21 @@ def context(state, width=None):
     music=state.get('music_asset')
     music_data=dict(id=music.id,name=music.name,duration=music.duration,truncated=music.truncated,
                     content_hash=hashed('music:'+music.id,music.data)) if music else None
+    from .tour import LAYOUT
+    plan=state.get('floor_plan')
+    plan_data=dict(id=plan.id,name=plan.name,width=plan.width,height=plan.height,content_hash=hashed('plan:'+plan.id,plan.original)) if plan else None
+    videos=[dict(id=v.id,name=v.name,width=v.width,height=v.height,duration=v.duration,has_audio=v.has_audio,content_hash=hashed('video:'+v.id,v.data)) for v in state.get('video_assets',{}).values()]
     for key in list(cache):
         if key not in live:del cache[key]
     return dict(photos=photos,assets=assets,music=music_data,width=state.get('video_width',1080) if width is None else width,
-                engine=engine_signature(),schema=SCHEMA)
+                floor_plan=plan_data,videos=sorted(videos,key=lambda v:v['id']),tour_layout=LAYOUT,engine=engine_signature(),schema=SCHEMA)
 
 
 def project_version(state, width=None):
     data=dict(photos=[p.metadata() for p in state.get('photos',[])],
               template_id=state.get('template_mode','items'),
               **{k:state.get(k,[] if k in ('overlays','comparisons','comparison_overlays') else None)
-                 for k in ('overlays','comparisons','comparison_overlays','cover','music')})
+                 for k in ('overlays','comparisons','comparison_overlays','cover','music')},tour=state.get('tour'))
     return digest(document(data,context(state,width)))
 
 

@@ -25,7 +25,7 @@ test('建議上限12，不看相鄰順序；分類含混空間不提高信心',(
 function draft(){const rows=[p('b','before'),p('a','after')];let n=0;return {rows,comparisons:[C.make(...rows,()=>String(++n))],cover:{photo_id:'b'},overlays:[],comparisonOverlays:[],deleted:[]};}
 test('單次完整復原照片、原順序、片段、裁切、文字、封面與PNG時間；不保存圖片歷史',()=>{
   const d=draft(),h=new H.History(),old=H.state(d),media=d.rows.slice();d.overlays=[{start:3,duration:4}];
-  assert.deepEqual(H.impact(d,'b'),{clips:1,cover:true,labels:1});h.begin(d,'b');
+  assert.deepEqual(H.impact(d,'b'),{clips:1,tour_clips:0,cover:true,labels:1});h.begin(d,'b');
   const before=H.state(d);d.rows.splice(0,1);d.comparisons=[];d.cover.photo_id='a';d.overlays[0].duration=1;d.deleted.push('b');h.finish(d);
   const persisted=JSON.stringify(h.persisted());assert.ok(!persisted.includes('image-b'));
   const rebuilt=new H.History();rebuilt.load(JSON.parse(persisted));rebuilt.restore(d,media);

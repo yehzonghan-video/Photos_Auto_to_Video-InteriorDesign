@@ -23,6 +23,7 @@ function environment(storage=new Map()) {
       roundRect(){},beginPath(){},fill(){},fillText(){},strokeText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
       arc(){},rect(){},clip(){},save(){},restore(){},translate(){},rotate(){},strokeRect(){},setLineDash(){},drawImage(){draws++;}};
     return {tagName:tag,children:[],value:'',checked:true,disabled:false,hidden:false,width:1080,height:1920,
+      paused:true,currentTime:0,readyState:2,seeking:false,videoWidth:220,videoHeight:110,play(){this.paused=false;return Promise.resolve();},pause(){this.paused=true;},load(){},
       classList:{toggle(){},add(){},remove(){}},dataset:{},style:{},
       getContext:()=>ctx,getBoundingClientRect:()=>({left:0,top:0,width:1080,height:1920}),
       querySelector:()=>null,
@@ -38,6 +39,7 @@ function environment(storage=new Map()) {
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
     StudioOutput:require('../frontend/output-controller.js'),
     StudioPairing:require('../frontend/pairing.js'),StudioPhotoHistory:require('../frontend/photo-history.js'),
+    StudioTour:require('../frontend/tour-model.js'),
     StudioDraft:{DraftState,metadata},StudioVersion,StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
     setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
@@ -45,6 +47,7 @@ function environment(storage=new Map()) {
   vm.runInContext(fs.readFileSync('frontend/timeline-ui.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/png-editor.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/comparison-editor.js','utf8'),context);
+  vm.runInContext(fs.readFileSync('frontend/tour-editor.js','utf8'),context);context.StudioTourUI=window.StudioTourUI;
   vm.runInContext(fs.readFileSync('frontend/cover-editor.js','utf8'),context);
   context.StudioCover=window.StudioCover;
   vm.runInContext(fs.readFileSync('frontend/body-editor.js','utf8'),context);
@@ -58,6 +61,41 @@ function environment(storage=new Map()) {
   const changes=()=>messages.filter(m=>m.type==='streamlit:setComponentValue');
   return {elements,changes,receive,rows,context,storage,frames,downloads,get draws(){return draws;}};
 }
+
+test('第五階段：點圖建立共用房間、改名、未指定不沿用，刪除使用中的房間先提示且取消不改seq',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id);
+  const project={photos:env.rows(),template_id:'tour',floor_plan:{id:'plan',image:'plan-image',width:220,height:110},tour_layout:require('../frontend/tour-layout.json')};
+  await env.receive({project});assert.equal(run('draft.tour.clips.length'),2);get('tourRoomName').value='客廳';get('tourMap').dispatch('pointerdown',{clientX:540,clientY:960});
+  const id=run('draft.tour.rooms[0].id');assert.equal(run('draft.tour.rooms[0].x'),.5);get('tourClipRoom').value=id;get('tourClipRoom').onchange();
+  get('photos').children[1].onclick();assert.equal(run('photo().room_id'),null);get('tourClipRoom').value=id;get('tourClipRoom').onchange();get('tourRoomName').value='大客廳';get('tourRoomName').oninput();
+  assert.equal(run('draft.tour.rooms[0].name'),'大客廳');const seq=run('draft.seq');get('tourRoomList').children[0].onclick();assert.equal(run('draft.seq'),seq);
+  get('tourRoomDelete').onclick();assert.equal(get('tourDeleteConfirm').hidden,false);get('tourDeleteCancel').onclick();assert.equal(run('draft.seq'),seq);
+  get('tourRoomDelete').onclick();get('tourDeleteConfirm').onclick();assert.equal(run('draft.tour.rooms.length'),0);assert.ok(run('draft.tour.clips.every(c=>c.room_id===null)'));assert.equal(env.changes().length,0);
+});
+
+test('第五階段：更換平面圖保留房名關聯且待定位，重建／seek保留設定、不新增內容版本',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id);
+  const project={photos:env.rows(),template_id:'tour',floor_plan:{id:'plan',image:'plan-image',width:220,height:110},tour_layout:require('../frontend/tour-layout.json')};
+  await env.receive({project});get('tourRoomName').value='廚房';get('tourMap').dispatch('pointerdown',{clientX:540,clientY:960});const id=run('draft.tour.rooms[0].id');get('tourClipRoom').value=id;get('tourClipRoom').onchange();
+  await env.receive({project:{...project,floor_plan:{...project.floor_plan,id:'plan2',image:'plan2'}},revision:2});assert.equal(run('draft.tour.rooms[0].needs_review'),true);assert.equal(run('draft.tour.clips[0].room_id'),id);
+  get('tourRoomList').children[0].onclick();get('tourMap').dispatch('pointerdown',{clientX:600,clientY:960});assert.equal(run('draft.tour.rooms[0].needs_review'),false);
+  const rebuilt=environment(env.storage);await rebuilt.receive({project:{...project,floor_plan:{...project.floor_plan,id:'plan2',image:'plan2'}},revision:2});const r=s=>vm.runInContext(s,rebuilt.context),seq=r('draft.seq');
+  rebuilt.elements.get('seek').value=5;rebuilt.elements.get('seek').oninput();assert.equal(r('draft.seq'),seq);assert.equal(r('draft.tour.rooms[0].name'),'廚房');assert.equal(rebuilt.changes().length,0);
+  r('draft.dirty=false;draft.pending=null;draft.revision=3');
+  await rebuilt.receive({project,revision:1});assert.equal(r('draft.tour.rooms[0].name'),'廚房');
+});
+
+test('第五階段：影片與照片混排、起訖與靜音本地更新，時間軸移動／裁切有效，輸出批次含最新tour',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id);
+  const video={id:'vid',name:'walk.mp4',src:'/app/static/tour/video.mp4',poster:'poster',duration:8,width:220,height:110,has_audio:true};
+  await env.receive({project:{photos:env.rows(),template_id:'tour',videos:[video],tour_layout:require('../frontend/tour-layout.json')}});assert.equal(run('draft.tour.clips.length'),3);
+  get('photos').children[2].onclick();get('tourIn').value=2;get('tourOut').value=5;get('tourIn').onchange();get('tourMute').checked=false;get('tourMute').onchange();
+  assert.equal(run('photo().duration'),3);assert.equal(run('photo().muted'),false);assert.equal(get('browserExport').disabled,true);
+  run("const c=draft.tour.clips[2];StudioTimeline.edit(StudioTimeline.items(draft.tour.clips)[4]||{type:'video',source:c.id,id:c.id,start:8,duration:3},'move',-8,draft.tour.clips,[])");
+  assert.equal(run('draft.tour.clips[0].kind'),'video');
+  assert.equal(env.changes().length,0);
+  vm.runInContext("synchronize('save_project')",env.context);const sent=env.changes()[0].value;assert.equal(sent.tour.clips.find(c=>c.kind==='video').in,2);assert.equal(sent.tour.clips.find(c=>c.kind==='video').muted,false);
+});
 
 test('第四階段：建議／拒絕不改草稿序號，接受衝突需明確確認且不覆蓋原片段',async()=>{
   const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),rows=env.rows();
@@ -629,10 +667,12 @@ test('替換媒體回覆不覆蓋人工定位，AI與對比引用標記待確認
   const clip=StudioComparison.make(...rows,webcrypto.randomUUID.bind(webcrypto));
   await env.receive({project:{photos:rows,template_id:'compare',comparisons:[clip]}});
   run("photos[0].labels.push({id:'ai',text:'木紋地板',source:'gemini',needs_review:false,point_x:.12,point_y:.8});draft.comparisons[0].labels[0].source='gemini';draft.comparisons[0].labels[0].needs_review=false;draft.dirty=true;");
+  run("draft.tour={rooms:[],clips:[{kind:'photo',source:'p1',labels:[{source:'gemini',needs_review:false,point_x:.12}]}],overlays:[],seen_sources:[]}");
   const changed=rows.map(p=>({...p}));changed[0].content_hash='replacement';changed[0].image='new-image';
   await env.receive({project:{photos:changed,template_id:'compare',comparisons:[clip]},revision:2});
   assert.equal(run('photos[0].labels[0].needs_review'),true);assert.equal(run('photos[0].labels[0].point_x'),.12);
   assert.equal(run('draft.comparisons[0].labels[0].needs_review'),true);
+  assert.equal(run('draft.tour.clips[0].labels[0].needs_review'),true);assert.equal(run('draft.tour.clips[0].labels[0].point_x'),.12);
   await env.receive({project:{photos:rows,template_id:'compare',comparisons:[clip]},revision:1});
   assert.equal(run('photos[0].content_hash'),'replacement');assert.equal(env.changes().length,0);
 });

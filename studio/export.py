@@ -1,5 +1,6 @@
 """逐影格送至 FFmpeg，不將使用者照片或未壓縮影格永久寫入磁碟。"""
 from functools import lru_cache
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import subprocess
@@ -36,21 +37,24 @@ def capabilities():
 
 
 def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout=300, overlays=None, assets=None,
-                 template="items", comparisons=None, cover=None, music=None, music_asset=None):
-    if not photos:
+                 template="items", comparisons=None, cover=None, music=None, music_asset=None,tour=None,floor_plan=None,videos=None):
+    if not photos and not (template=='tour' and videos):
         raise ValueError("請先上傳照片。")
     if (width, height) not in ((360, 640), (720, 1280), (1080, 1920)) or fps != 30:
         raise ValueError("不支援的輸出尺寸或影格率。")
-    if template not in ("items","compare"):raise ValueError("影片模板不正確。")
+    if template not in ("items","compare","tour"):raise ValueError("影片模板不正確。")
     from .comparison import validate_comparisons, prepare_comparison, comparison_frame
     sequence=validate_comparisons(comparisons or [],photos) if template=="compare" else photos
+    if template=='tour':
+        from .tour import validate_tour,plan_layer
+        tour=validate_tour(tour,photos,videos or {},floor_plan);sequence=tour['clips']
     if not sequence:raise ValueError("請先新增一組前後配對再輸出。")
     from .cover import validate_cover, cover_frame, DURATION
-    cover=validate_cover(cover,photos);prefix=DURATION if cover['enabled'] else 0
+    cover=validate_cover(cover,photos);prefix=DURATION if cover['enabled'] and photos else 0
     from .body import body_layer, title_visible, logo_visible
     decoration=body_layer(cover,include_title=False) if cover['body']['logo_enabled'] else None
     title_decoration=body_layer(cover,include_logo=False) if cover['body']['enabled'] else None
-    duration = sum(p["duration"] if template=="compare" else p.duration for p in sequence)
+    duration = sum(p["duration"] if template in ("compare","tour") else p.duration for p in sequence)
     duration+=prefix
     if duration > MAX_TOTAL_SECONDS:
         raise ValueError("影片最長 120 秒。")
@@ -58,7 +62,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
     from .music import validate_music, audio_filter
     music = validate_music(music, music_asset)
     has_music = music['enabled'] and music['source'] is not None
-    total = sum(round((p['duration'] if template=='compare' else p.duration)*fps) for p in sequence)+round(prefix*fps)
+    total = sum(round((p['duration'] if template in ('compare','tour') else p.duration)*fps) for p in sequence)+round(prefix*fps)
     from .overlays import prepare_overlays, validate_overlays
     validated = validate_overlays(overlays or [], assets or {}, duration)
     if not RENDER_LOCK.acquire(blocking=False):
@@ -71,11 +75,23 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
         # 壓縮影片、BGM與FFmpeg診斷均使用暫存檔，離開區塊一律清除。
         with tempfile.TemporaryDirectory(prefix="interior-video-") as folder:
             target = Path(folder) / "case.mp4"
+            source_audio=None
+            if template=='tour':
+                from .tour_video import original_audio
+                source_audio=original_audio(sequence,videos or {},folder,prefix)
             with (Path(folder) / "encoder.log").open("w+b") as log:
                 command = [binary, "-hide_banner", "-loglevel", "error", "-y",
                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
                            "-r", str(fps), "-i", "pipe:0"]
-                if has_music:
+                if source_audio:
+                    command+=['-i',str(source_audio)]
+                    if has_music:
+                        audio_path=Path(folder)/'bgm.wav';audio_path.write_bytes(music_asset.data)
+                        if music['loop']:command+=['-stream_loop','-1']
+                        command+=['-i',str(audio_path),'-filter_complex',f"[2:a]{audio_filter(music,music_asset.duration,total/fps)}[bgm];[1:a][bgm]amix=inputs=2:normalize=0:duration=longest,alimiter=limit=0.95:latency=1[a]",'-map','0:v:0','-map','[a]']
+                    else:command+=['-map','0:v:0','-map','1:a:0','-af','alimiter=limit=0.95:latency=1']
+                    command+=['-c:a','aac','-b:a','192k','-t',f'{total/fps:.9f}']
+                elif has_music:
                     audio_path = Path(folder)/'bgm.wav';audio_path.write_bytes(music_asset.data)
                     if music['loop']:command += ['-stream_loop', '-1']
                     command += ['-i', str(audio_path), '-map', '0:v:0', '-map', '1:a:0',
@@ -94,6 +110,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                 timer = threading.Thread(target=watchdog, daemon=True)
                 timer.start()
                 done = 0
+                reader = None
                 try:
                     def write_frame(frame):
                         nonlocal done
@@ -110,7 +127,15 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         for index in range(round(prefix*fps)):
                             write_frame(render_frame(base,[],[],index/fps,prepared,index/fps))
                     for photo in sequence:
-                        if template=="compare":
+                        if template=='tour':
+                            from .rendering import fit_image
+                            from types import SimpleNamespace
+                            from .tour_video import decoder
+                            labels=photo['labels'];length=photo['duration'];settings=SimpleNamespace(**photo['crop'])
+                            marker=plan_layer(floor_plan,tour,photo['room_id'])
+                            reader=decoder(videos[photo['source']],photo,folder) if photo['kind']=='video' else None
+                            if reader is None:base=crop_photo(replace(next(p for p in photos if p.id==photo['source']),**photo['crop']))
+                        elif template=="compare":
                             frames=prepare_comparison(photo,photos);labels=photo["labels"];length=photo["duration"]
                         else:
                             base=crop_photo(photo);labels=photo.labels;length=photo.duration
@@ -125,6 +150,12 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                         tiles = [label_tile(label) for label in labels]
                         count = round(length * fps)
                         for index in range(count):
+                            if template=='tour':
+                                if reader is not None:base=fit_image(next(reader),settings)
+                                current=base.copy()
+                                if decoration is not None and logo_visible(cover['body'],done/fps,prefix,total/fps):current.alpha_composite(decoration)
+                                if title_decoration is not None and title_visible(cover['body'],done/fps,prefix,total/fps):current.alpha_composite(title_decoration)
+                                frame=render_frame(current,labels,tiles,index/fps,prepared,done/fps).convert('RGBA');frame.alpha_composite(marker);write_frame(frame.convert('RGB'));continue
                             if template=="compare":base=comparison_frame(photo,frames,index/fps)
                             show_logo=decoration is not None and logo_visible(cover['body'],done/fps,round(prefix*fps)/fps,total/fps)
                             if template=="compare" and show_logo:base.alpha_composite(decoration)
@@ -133,6 +164,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                             current=variants[int(show_logo)+2*int(show_title)] if template!='compare' else base
                             frame = render_frame(current, labels, tiles, index / fps, prepared, done / fps)
                             write_frame(frame)
+                        if template=='tour' and reader is not None:reader.close()
                     process.stdin.close()
                     code = process.wait(timeout=max(1, timeout - (time.monotonic() - started)))
                     if code:
@@ -149,6 +181,7 @@ def export_video(photos, width=1080, height=1920, fps=30, progress=None, timeout
                     raise RuntimeError("編碼器停止或輸出逾時。請改用 720p 或減少照片後重試。") from exc
                 finally:
                     stop.set()
+                    if reader is not None:reader.close()
                     if process.poll() is None:
                         process.kill()
                     process.wait()

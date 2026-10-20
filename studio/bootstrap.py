@@ -7,7 +7,7 @@ import threading
 LOGGER = logging.getLogger('interior_studio.runtime')
 _LOAD_LOCK = globals().get('_LOAD_LOCK',threading.RLock())
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 4
+EDITOR_UI_VERSION = 5
 
 
 def _compatible(module, function, music_arguments=False):
@@ -27,10 +27,10 @@ def video_modules():
     """不清除Session State；避免新app.py呼叫記憶體中的舊payload／export。"""
     with _LOAD_LOCK:
         # 共用標題與音樂先載入，消費端再重新匯入新函式，避免Cloud混用舊介面。
-        specs = [('studio.models', 'new_label', False), ('studio.cover', 'new_cover', False), ('studio.body', 'effective_title', False),
+        specs = [('studio.rendering','template_config',False),('studio.models', 'new_label', False), ('studio.cover', 'new_cover', False), ('studio.body', 'effective_title', False),
                  ('studio.music', 'load_music', False), ('studio.versioning','refresh',False),
                  ('studio.protection','request',False),('studio.ai','unfinished_photos',False),('studio.ai_ui','ai_panel',False),
-                 ('studio.comparison','validate_comparisons',False),('studio.photo_history','sources',False),
+                 ('studio.comparison','validate_comparisons',False),('studio.photo_history','sources',False),('studio.tour','new_tour',False),('studio.tour_video','load_video',False),('studio.tour_ui','panel',False),
                  ('studio.project_io', 'build_archive', False),
                  ('studio.project_ui', 'import_panel', False), ('studio.photo_intake', 'append_photos', False),
                  ('studio.output_jobs', 'snapshot', False), ('studio.output_ui','operation_status',False), ('studio.component', 'payload', True),

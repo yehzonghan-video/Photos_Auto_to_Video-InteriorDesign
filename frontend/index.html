@@ -8,6 +8,7 @@
 </head>
 <body>
 <section class="studio">
+  <details id="tourPanel" class="asset-section" open hidden><summary>空間導覽 · 平面圖與房間</summary><p class="hint">輸入房名後點圖新增；選房間可改名／重新定位。灰點待確認，不進入影片。平面圖固定最上層，封面不顯示。</p><div class="row"><label>房間名稱<input id="tourRoomName" maxlength="40" value="客廳"></label><button id="tourRoomNew">新增房間（再點圖）</button><button id="tourRoomDelete">刪除選取房間</button></div><div class="row"><select id="tourSource" aria-label="重用導覽來源"></select><button id="tourAddClip">重用來源新增片段</button></div><p id="tourSourceHint" class="hint" role="status"></p><div id="tourRoomList" class="row"></div><p id="tourUsage" class="hint"></p><canvas id="tourMap" width="500" height="350" style="width:100%;max-width:500px;touch-action:none" aria-label="平面圖：點擊新增或重新定位房間"></canvas><p id="tourDeleteHint" class="hint" role="status"></p><button id="tourDeleteConfirm" hidden>確認刪除房間</button><button id="tourDeleteCancel" hidden>取消</button><div class="row"><label><input id="tourVisible" type="checkbox" checked>顯示平面圖</label><label>大小<input id="tourSize" type="range" min=".15" max=".5" step=".01"></label><label>透明度<input id="tourOpacity" type="range" min="0" max="1" step=".01"></label><label>紅點大小<input id="tourDot" type="range" min="6" max="24" step="1"></label></div></details>
   <section id="comparisonBank" hidden class="comparison-bank">
     <div class="strip-header"><strong>前後照片與配對</strong><button id="suggestPairs" class="primary">建議配對（不呼叫AI）</button><button id="autoPair">依順序自動配對</button></div>
     <p class="hint">建議只參考既有AI標籤、說明及照片分類／檔名，未分析或證據不足時不推測。確認後才新增，不取代原配對。</p>
@@ -99,6 +100,7 @@
         <p class="hint">選擇裁切對象後，下方照片顯示方式與裁切控制只調整該側。左右分割可直接拖曳畫布上的分割線。片段及標籤時間以此組配對開始為基準。</p>
       </div>
       <section id="photoSettings">
+      <section id="tourClipSettings" hidden><label class="field">所在空間<select id="tourClipRoom"></select></label><div id="tourVideoSettings" hidden><div class="row"><label>影片起點（秒）<input id="tourIn" type="number" min="0" max="60" step=".0333333333"></label><label>影片終點（秒）<input id="tourOut" type="number" min="1" max="60" step=".0333333333"></label></div><label><input id="tourMute" type="checkbox" checked>靜音原影片聲音</label><label>原音音量<input id="tourVolume" type="range" min="0" max="1" step=".01"></label></div></section>
       <div class="section-title">照片設定 <span id="photoNumber"></span></div>
       <button id="replacePhoto">替換照片</button><p id="replacementHint" class="hint"></p>
       <label class="field">顯示秒數<input id="duration" type="number" min="1" max="20" step=".1" value="4"></label>
@@ -159,5 +161,5 @@
     <p class="hint">紅線為播放指針。正文標題、LOGO及PNG使用全片時間；照片標籤隨照片順序移動。正文與LOGO可分別拖曳及裁切，預設跟隨正文長度，手動改時間後會限制於正文範圍。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="pairing.js"></script><script src="photo-history.js"></script><script src="content-version.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="tour-model.js"></script><script src="tour-editor.js"></script><script src="pairing.js"></script><script src="photo-history.js"></script><script src="content-version.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
 </body></html>

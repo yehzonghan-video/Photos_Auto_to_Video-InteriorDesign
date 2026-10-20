@@ -6,7 +6,7 @@
   function items(photos,overlays=[],prefix=0,bodyTitle=null,bodyLogo=null){
     let offset=prefix;const result=prefix?[{id:'project-cover',type:'cover',source:'project-cover',start:0,duration:prefix,layer:0,name:'片頭封面'}]:[];
     for(const p of photos){
-      result.push({id:p.id,type:p.type==='comparison'?'comparison':'photo',source:p.id,start:offset,duration:p.duration,layer:0,name:p.name});
+      result.push({id:p.id,type:p.kind==='video'?'video':p.type==='comparison'?'comparison':'photo',source:p.id,start:offset,duration:p.duration,layer:0,name:p.name});
       for(const l of p.labels)if(l.end>l.start)result.push({id:l.id,type:'label',source:p.id,start:offset+l.start,
         duration:l.end-l.start,layer:l.layer??10,name:l.text});
       offset+=p.duration;
@@ -25,6 +25,7 @@
   function photoDuration(p,value){
     if(p.type==='comparison'){Comparison.resize(p,value);return;}
     p.duration=clamp(snap(value),1,20);
+    if(p.kind==='video'){p.duration=Math.min(p.duration,(p.source_duration||p.out)-p.in);p.out=p.in+p.duration;}
     for(const l of p.labels){l.start=Math.min(l.start,p.duration-MIN);l.end=Math.max(l.start+MIN,Math.min(l.end,p.duration));l.enter=Math.min(l.enter,l.end-l.start);}
   }
   function edit(item,mode,delta,photos,overlays,prefix=0,body=null){
@@ -33,12 +34,13 @@
     if(bodyItem&&!body)return;
     delta=snap(delta);
     const p=photos.find(p=>p.id===item.source);
-    if(['photo','comparison'].includes(item.type)){
+    if(['photo','comparison','video'].includes(item.type)){
       if(mode==='move'){
-        const t=clamp(item.start+delta,prefix,total(photos)+prefix-MIN),tracks=items(photos,[],prefix).filter(i=>['photo','comparison'].includes(i.type));
+        const t=clamp(item.start+delta,prefix,total(photos)+prefix-MIN),tracks=items(photos,[],prefix).filter(i=>['photo','comparison','video'].includes(i.type));
         const target=Math.max(0,tracks.findIndex(i=>t<i.start+i.duration)),index=photos.findIndex(p=>p.id===item.id);
         if(index!==target){const [moved]=photos.splice(index,1);photos.splice(target,0,moved);}
       }else if(mode==='right')photoDuration(p,item.duration+delta);
+      else if(p.kind==='video'){const end=p.out;p.in=clamp(snap(p.in+delta),Math.max(0,end-20),end-1);photoDuration(p,end-p.in);}
       else{
         const index=photos.indexOf(p),previous=photos[index-1];
         if(previous){const pair=previous.duration+p.duration,d=clamp(delta,Math.max(1-previous.duration,p.duration-20),Math.min(20-previous.duration,p.duration-1));
@@ -46,7 +48,7 @@
       }
       clampOverlays(overlays,total(photos)+prefix);return;
     }
-    const startBound=bodyItem?prefix:item.type==='label'?items(photos,[],prefix).find(i=>['photo','comparison'].includes(i.type)&&i.id===p.id).start:0;
+    const startBound=bodyItem?prefix:item.type==='label'?items(photos,[],prefix).find(i=>['photo','comparison','video'].includes(i.type)&&i.id===p.id).start:0;
     const endBound=item.type==='label'?startBound+p.duration:total(photos)+prefix;
     let start=item.start,end=item.start+item.duration;
     if(mode==='move'){start=clamp(start+delta,startBound,endBound-item.duration);end=start+item.duration;}

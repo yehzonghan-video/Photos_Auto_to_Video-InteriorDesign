@@ -16,11 +16,13 @@ editor = components.declare_component("interior_studio_editor", path=str(Path(__
 
 
 def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, template="items", comparison_overlays=None, cover=None,
-            music=None, music_asset=None):
+            music=None, music_asset=None,tour=None,floor_plan=None,videos=None):
     cache = {} if cache is None else cache
     live_ids = {photo.id for photo in photos} | {"clip:"+c["id"] for c in comparisons or []}
     live_ids.add('__cover__')
     live_ids.add('__body__')
+    live_ids.add('__plan__')
+    live_ids.update('video:'+ident for ident in (videos or {}))
     if music_asset:live_ids.add('__music__')
     for ident in list(cache):
         if ident not in live_ids:
@@ -69,7 +71,7 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
             cached.update(style=signature,title=data_url(title_tile(cover)))
         cover_assets.update(title=cached['title'],template='data:image/png;base64,'+base64.b64encode(template_bytes()).decode('ascii'))
     body_assets={'layout':BODY_LAYOUT}
-    if photos:
+    if photos or videos:
         cached=cache.setdefault('__body__',{})
         style=effective_title(cover)
         signature={**style,'layout':BODY_LAYOUT['title']}
@@ -85,7 +87,25 @@ def payload(photos, cache=None, assets=None, overlays=None, comparisons=None, te
         elif cached['data']['name']!=music_asset.name or cached['data']['truncated']!=music_asset.truncated:
             cached['data']={**cached['data'],'name':music_asset.name,'truncated':music_asset.truncated}
         music_data=cached['data']
-    return dict(photos=rows, template=template_config(template), template_id=template, schema_version=4, safe_area=SAFE_AREA,
+    from .tour import LAYOUT as TOUR_LAYOUT,new_tour
+    plan_data=None;video_data=[]
+    if floor_plan:
+        cached=cache.setdefault('__plan__',{})
+        if cached.get('id')!=floor_plan.id:
+            from io import BytesIO
+            from PIL import Image,ImageOps
+            with Image.open(BytesIO(floor_plan.original)) as source:
+                image=ImageOps.exif_transpose(source).convert('RGBA')
+                image.thumbnail((960,960),Image.Resampling.LANCZOS)
+                cached.update(id=floor_plan.id,image=data_url(image))
+        plan_data=dict(id=floor_plan.id,width=floor_plan.width,height=floor_plan.height,image=cached['image'])
+    for v in (videos or {}).values():
+        from .tour_video import publish
+        import streamlit as st
+        prefix=st.get_option('server.baseUrlPath').strip('/')
+        video_data.append(dict(id=v.id,name=v.name,width=v.width,height=v.height,duration=v.duration,has_audio=v.has_audio,
+                               src=('/'+prefix if prefix else '')+publish(v),poster='data:image/jpeg;base64,'+base64.b64encode(v.poster).decode('ascii')))
+    return dict(photos=rows,tour=tour or new_tour(),floor_plan=plan_data,videos=video_data,tour_layout=TOUR_LAYOUT, template=template_config(template), template_id=template, schema_version=4, safe_area=SAFE_AREA,
                 music=music,music_asset=music_data,
                 cover=cover,cover_assets=cover_assets,body_assets=body_assets,
                 assets=[asset.metadata() for asset in (assets or {}).values()], overlays=overlays or [],
