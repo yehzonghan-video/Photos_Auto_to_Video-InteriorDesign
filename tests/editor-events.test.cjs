@@ -713,3 +713,14 @@ test('輸出收到錯seq ACK拒絕且保留草稿，不使用舊資料開始渲�
   assert.equal(env.changes().some(e=>e.value.action==='start_output'),false);
   assert.equal(vm.runInContext('draft.rows[0].labels[0].text',env.context),'不能遺失');
 });
+
+test('雙檔選項預設開啟、切換不改草稿seq與內容雜湊，重建後保留並傳入固定快照握手',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context);
+  const context={schema:JSON.parse(fs.readFileSync('frontend/content-schema.json','utf8')),photos:{p1:'hash',p2:'hash2'},assets:[],music:null,width:1080,engine:'renderer'};
+  const project={photos:env.rows()},initial=StudioVersion.digest(StudioVersion.document(project,context)),versions={context,synced:initial};
+  await env.receive({project,versions});const bridge=env.context.window.StudioOutputBridge,seq=run('draft.seq'),version=run('draft.currentVersion()');
+  assert.equal(bridge.status().zipBackup,true);bridge.setZipBackup(false);
+  assert.equal(run('draft.seq'),seq);assert.equal(run('draft.currentVersion()'),version);
+  const restored=environment(env.storage);await restored.receive({project,versions});assert.equal(restored.context.window.StudioOutputBridge.status().zipBackup,false);
+  restored.context.window.StudioOutputBridge.capture('mp4',1080);assert.equal(restored.changes()[0].value.zip_backup,false);
+});

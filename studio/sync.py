@@ -8,7 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 5
+EDITOR_UI_VERSION = 6
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -50,8 +50,24 @@ def consume_editor_event(state, event):
         from .protection import receive_probe
         receive_probe(state,event)
         return
-    if event.get('action') in ('start_output','zip_download_requested','cancel_output'):
+    if event.get('action') in ('start_output','zip_download_requested','downloads_requested','retry_output_zip','cancel_output'):
         if event.get('session')!=state['editor_session'] or state.get('guard_request'):return
+        if event['action']=='retry_output_zip':
+            from .output_jobs import retry_zip
+            try:retry_zip(state,event)
+            except (ValueError,RuntimeError) as exc:state['output_status']=dict(id=event['nonce'],phase='error',message=str(exc))
+            return
+        if event['action']=='downloads_requested':
+            requests=event.get('downloads',[])
+            for item in requests if isinstance(requests,list) and len(requests)<=2 else []:
+                if not isinstance(item,dict):continue
+                saved=state.get('project_archive' if item.get('kind')=='zip' else 'mp4_download' if item.get('kind')=='mp4' else '') or {}
+                if not saved or item.get('kind') not in ('zip','mp4') or item.get('operation_id')!=saved.get('request_id') or item.get('content_version')!=saved.get('content_version'):continue
+                if item['kind']=='zip':
+                    from .project_ui import download_requested
+                    download_requested(state,saved['content_version'])
+                else:state['mp4_download_request_id']=saved['request_id']
+            return
         if event['action']=='cancel_output':
             prepared=state.get('prepared_output')
             if prepared and prepared['id']==event.get('operation_id'):
@@ -92,7 +108,8 @@ def consume_editor_event(state, event):
         state['editor_response']=dict(nonce=nonce,ok=False,message='上一個輸出請求尚未完成，請稍候。');return
     if protocol:
         if (event.get('request')!=nonce or event.get('width')!=state.get('video_width',1080)
-                or event.get('width') not in (360,720,1080) or not isinstance(event.get('content_version'),str)):
+                or event.get('width') not in (360,720,1080) or not isinstance(event.get('content_version'),str)
+                or ('zip_backup' in event and type(event['zip_backup']) is not bool)):
             state['editor_response']=dict(nonce=nonce,ok=False,message='輸出設定尚未更新，草稿保留，請重新按原按鈕。');return
         request=dict(id=nonce,width=event['width'])
     if (event.get("action") == "cancel_export" and event.get("session") == state["editor_session"]

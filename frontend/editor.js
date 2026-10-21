@@ -111,13 +111,13 @@ function markEdited(persist=true) {
   syncStatus();timeline.draw();
 }
 function queueDraw(){if(!editRaf)editRaf=requestAnimationFrame(()=>{editRaf=0;info();draw();});}
-function synchronize(action='apply',request=null,width=null) {
+function synchronize(action='apply',request=null,width=null,outputOptions={}) {
   if(!validProject())return Promise.reject(new Error('請先修正標籤文字與時間設定。'));
   if(draft.pending)return Promise.reject(new Error('正在套用上一批變更，請稍候再試。'));
   const event=draft.snapshot(width===null?crypto.randomUUID():request,action,request);
   if(deletionHistory.restored)event.restore_photo=deletionHistory.restored;
   if(deletionHistory.entry)event.deleted_photo=deletionHistory.entry.id;
-  if(width!==null){event.output_protocol=3;event.width=width;draft.pending.output=true;draft.pending.version=event.content_version;}
+  if(width!==null){event.output_protocol=3;event.width=width;event.zip_backup=action==='export'&&outputOptions.zip_backup===true;draft.pending.output=true;draft.pending.version=event.content_version;}
   persistDraft();syncStatus();
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{
@@ -264,7 +264,7 @@ window.addEventListener('message', async event => {
         if(result.success)waiter.resolve();else waiter.reject(new Error(result.error));}
       if(result.error)status(result.error+' 草稿仍保留在此頁。',true);
     }
-    outputs.receive(args.output_status,args.zip_delivery,args.response);
+    outputs.receive(args.output_status,args.zip_delivery,args.response,args.mp4_delivery);
     syncStatus();persistDraft();
     if(args.export_request&&args.export_request!==activeExportRequest&&!draft.pending) {
       activeExportRequest=args.export_request;preparing=true;lockEditor(true);
@@ -698,12 +698,15 @@ const outputs=new StudioOutput.OutputController({uuid:()=>crypto.randomUUID(),pe
   seq:()=>draft.seq,version:()=>draft.currentVersion(),current:()=>draft.contentVersion,persist:persistDraft,sync:synchronize,
   post:value=>post('streamlit:setComponentValue',{value:{...value,session:draft.session},dataType:'json'}),
   download:delivery=>{
-    if(!/^\/[A-Za-z0-9_./-]*app\/static\/downloads\/[0-9a-f]{64}\.zip$/.test(delivery.url))throw new Error('下載網址不正確。');
+    if(!/^\/[A-Za-z0-9_./-]*app\/static\/downloads\/[0-9a-f]{64}\.(zip|mp4)$/.test(delivery.url))throw new Error('下載網址不正確。');
     const a=document.createElement('a');a.href=delivery.url;a.download=delivery.filename;document.body.append(a);a.click();a.remove();
   }});
 window.StudioOutputBridge={session:()=>draft.session,status:()=>outputs.status(),capture:(kind,width)=>{
   if(guardLocked||recording||preparing||!['zip','mp4'].includes(kind))return Promise.reject(new Error('目前無法輸出，請稍候。'));
   if(draft.versionContext&&draft.versionContext.width!==width)return Promise.reject(new Error('解析度設定尚未更新，請稍候再試。'));
   return outputs.request(kind,width);
-},downloadRequested:()=>{const d=outputs.delivery;if(d)post('streamlit:setComponentValue',{value:{action:'zip_download_requested',session:draft.session,nonce:crypto.randomUUID(),operation_id:d.request_id,content_version:d.content_version},dataType:'json'});}};
+},setZipBackup:value=>outputs.setZipBackup(value),retryZip:()=>outputs.retryZip(),downloadRequested:(kind='zip')=>{
+  const d=kind==='mp4'?outputs.mp4Delivery:outputs.delivery;
+  if(d)post('streamlit:setComponentValue',{value:{action:'downloads_requested',session:draft.session,nonce:crypto.randomUUID(),downloads:[{kind,operation_id:d.request_id,content_version:d.content_version}]},dataType:'json'});
+}};
 post('streamlit:componentReady',{apiVersion:1});resize();

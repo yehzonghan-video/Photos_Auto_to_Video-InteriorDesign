@@ -7,13 +7,15 @@ import threading
 LOGGER = logging.getLogger('interior_studio.runtime')
 _LOAD_LOCK = globals().get('_LOAD_LOCK',threading.RLock())
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 5
+EDITOR_UI_VERSION = 6
 
 
 def _compatible(module, function, music_arguments=False):
     if getattr(module, 'BGM_API_VERSION', None) != BGM_API_VERSION:
         return False
     if module.__name__ == 'studio.sync' and getattr(module, 'EDITOR_UI_VERSION', None) != EDITOR_UI_VERSION:
+        return False
+    if module.__name__ == 'studio.output_jobs' and getattr(module,'OUTPUT_API_VERSION',None)!=4:
         return False
     try:
         parameters = inspect.signature(getattr(module, function)).parameters
@@ -33,7 +35,7 @@ def video_modules():
                  ('studio.comparison','validate_comparisons',False),('studio.photo_history','sources',False),('studio.tour','new_tour',False),('studio.tour_video','load_video',False),('studio.tour_ui','panel',False),
                  ('studio.project_io', 'build_archive', False),
                  ('studio.project_ui', 'import_panel', False), ('studio.photo_intake', 'append_photos', False),
-                 ('studio.output_jobs', 'snapshot', False), ('studio.output_ui','operation_status',False), ('studio.component', 'payload', True),
+                 ('studio.downloads','delivery',False),('studio.output_jobs', 'snapshot', False), ('studio.output_ui','operation_status',False), ('studio.component', 'payload', True),
                  ('studio.export', 'export_video', True), ('studio.sync', 'consume_editor_event', False)]
         modules = [importlib.import_module(name) for name, _, _ in specs]
         mismatches = [name for module, (name, function, music_args) in zip(modules, specs)

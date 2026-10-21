@@ -1,4 +1,4 @@
-"""公開 static serving 的短效 ZIP；只回傳不可猜測的網址，不傳 Base64。"""
+"""公開static serving的短效ZIP／MP4；只回傳不可猜測的網址，不傳Base64。"""
 from pathlib import Path
 import os
 import re
@@ -11,7 +11,8 @@ TTL = 15 * 60
 MAX_DISK = 320 * 1024 * 1024
 _LOCK = globals().get('_LOCK', threading.RLock())
 _JANITOR = globals().get('_JANITOR', None)
-_NAME = re.compile(r'[0-9a-f]{64}\.(zip|part)')
+BGM_API_VERSION = 10
+_NAME = re.compile(r'[0-9a-f]{64}\.(zip|mp4|part)')
 
 
 def cleanup(now=None):
@@ -41,14 +42,15 @@ def _sweep():
         cleanup()
 
 
-def publish(data, base=''):
+def publish(data, base='', kind='zip'):
     global _JANITOR
+    if kind not in ('zip','mp4'):raise ValueError('不支援的下載格式。')
     with _LOCK:
         ROOT.mkdir(parents=True,exist_ok=True)
         cleanup()
         used=sum(p.stat().st_size for p in ROOT.iterdir() if _NAME.fullmatch(p.name) and p.is_file())
         if used+len(data)>MAX_DISK:raise OSError('暫存下載空間不足')
-        token=secrets.token_hex(32);part=ROOT/(token+'.part');ready=ROOT/(token+'.zip')
+        token=secrets.token_hex(32);part=ROOT/(token+'.part');ready=ROOT/(token+'.'+kind)
         try:
             with part.open('xb') as out:out.write(data)
             os.replace(part,ready)  # 完整寫入後才公開可下載名稱。

@@ -4,7 +4,7 @@ import inspect
 import unittest
 from unittest.mock import patch
 
-from studio import component, export, sync, music, bootstrap
+from studio import component, export, sync, music, bootstrap, output_jobs
 from studio.bootstrap import video_modules, BGM_API_VERSION
 from tests.app_helpers import authenticated_app
 
@@ -54,6 +54,12 @@ class BootstrapTests(unittest.TestCase):
         with patch.object(sync,'EDITOR_UI_VERSION',0):
             video_modules()
             self.assertEqual(sync.EDITOR_UI_VERSION,bootstrap.EDITOR_UI_VERSION)
+
+    def test_old_output_worker_without_paired_results_is_reloaded(self):
+        pool=output_jobs._POOL
+        with patch.object(output_jobs,'OUTPUT_API_VERSION',3):
+            video_modules();self.assertEqual(output_jobs.OUTPUT_API_VERSION,4)
+            self.assertIs(output_jobs._POOL,pool)
 
     def test_live_streamlit_old_payload_preserves_photos_labels_and_music(self):
         app=authenticated_app()

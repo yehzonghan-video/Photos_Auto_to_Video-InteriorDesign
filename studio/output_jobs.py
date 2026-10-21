@@ -9,7 +9,7 @@ import uuid
 from .versioning import project_version, complete_export
 
 BGM_API_VERSION = 10
-OUTPUT_API_VERSION = 3
+OUTPUT_API_VERSION = 4
 _LOCK = globals().get('_LOCK',threading.RLock())
 _POOL = globals().get('_POOL',ThreadPoolExecutor(max_workers=2,thread_name_prefix='studio-output'))
 _TASKS = globals().get('_TASKS',{})
@@ -54,6 +54,21 @@ def _run(source, kind, version, progress):
     return dict(data=data,seconds=round(time.monotonic()-started,1))
 
 
+def _reason(exc):
+    return str(exc) if isinstance(exc,(ValueError,RuntimeError,OSError,TimeoutError,MemoryError)) else '處理發生未預期錯誤'
+
+
+def _run_pair(source,version,progress):
+    """共用一份快照，個別收集結果；ZIP失敗仍繼續渲染，反之亦然。"""
+    results={}
+    for kind in ('zip','mp4'):
+        try:
+            def report(value,message):progress((0 if kind=='zip' else .1)+value*(.1 if kind=='zip' else .9),message)
+            results[kind]=dict(ok=True,result=_run(source,kind,version,report))
+        except Exception as exc:results[kind]=dict(ok=False,message=_reason(exc))
+    return dict(artifacts=results)
+
+
 def start(state,event):
     global _JANITOR
     prepared=state.get('prepared_output')
@@ -70,11 +85,14 @@ def start(state,event):
         task=dict(created=time.monotonic(),progress=0.,message='正在準備固定版本素材…')
         def progress(value,message):
             with _LOCK:task.update(progress=max(0.,min(1.,float(value))),message=message)
-        future=_POOL.submit(_run,prepared['snapshot'],prepared['kind'],prepared['version'],progress)
+        paired=prepared.get('zip_backup',False) and prepared['kind']=='mp4'
+        future=(_POOL.submit(_run_pair,prepared['snapshot'],prepared['version'],progress) if paired else
+                _POOL.submit(_run,prepared['snapshot'],prepared['kind'],prepared['version'],progress))
+        task['snapshot']=prepared['snapshot']
         task['future']=future;_TASKS[ident]=task
         if _JANITOR is None or not _JANITOR.is_alive():
             _JANITOR=threading.Thread(target=_expire_results,daemon=True,name='output-expiry');_JANITOR.start()
-    state['output_task']=dict(id=prepared['id'],task=ident,kind=prepared['kind'],version=prepared['version'],revision=prepared['revision'])
+    state['output_task']=dict(id=prepared['id'],task=ident,kind=prepared['kind'],version=prepared['version'],revision=prepared['revision'],zip_backup=paired)
     state['output_status']={**state['output_task'],'phase':'working'}
     state.pop('prepared_output',None);state['editor_busy']=True
 
@@ -88,6 +106,22 @@ def progress(state):
         return dict(done=task['future'].done(),progress=task['progress'],message=task['message'])
 
 
+def _store(state,job,kind,result,static_enabled,base):
+    from .downloads import publish,revoke
+    meta=dict(request_id=job['id'],content_version=job['version'],revision=job['revision'])
+    if kind=='zip':archive=dict(**result,**meta)
+    else:archive=dict(**meta,filename=f"室內設計案例_{job['version'][4:16]}.mp4")
+    if static_enabled:
+        try:archive.update(publish(result['data'],base,kind))
+        except (OSError,MemoryError):archive['download_warning']='無法建立短效網址，請使用下方備用下載。'
+    else:archive['download_warning']='尚未啟用static serving，請使用下方備用下載。'
+    if kind=='zip':
+        revoke(state.get('project_archive'));state['project_archive']=archive;state['zip_version']=job['version']
+    else:
+        revoke(state.get('mp4_download'));state['mp4_download']=archive
+        complete_export(state,result['data'],result['seconds'],job['version'])
+
+
 def collect(state,static_enabled=False,base=''):
     job=state.get('output_task');status=progress(state)
     if not job or not status['done']:return False
@@ -95,21 +129,27 @@ def collect(state,static_enabled=False,base=''):
     try:
         if task is None:raise RuntimeError('工作階段或輸出程序已中斷，請重試。')
         result=task['future'].result()
-        if job['kind']=='zip':
-            from .downloads import publish,revoke
-            archive=dict(**result,request_id=job['id'],content_version=job['version'],revision=job['revision'])
-            if static_enabled:
-                try:archive.update(publish(result['data'],base))
-                except OSError:archive['download_warning']='無法建立短效網址，請使用備用下載。'
-            else:archive['download_warning']='此環境尚未啟用static serving，請使用備用下載；部署設定更新後可能需要重啟。'
-            revoke(state.get('project_archive'))
-            state['project_archive']=archive;state['zip_version']=job['version']
-        else:complete_export(state,result['data'],result['seconds'],job['version'])
-        state['output_status']=dict(id=job['id'],kind=job['kind'],version=job['version'],phase='done')
+        results=result.get('artifacts') if job.get('zip_backup') else {job['kind']:dict(ok=True,result=result)}
+        artifacts={}
+        for kind,item in results.items():
+            try:
+                if not item['ok']:raise RuntimeError(item['message'])
+                _store(state,job,kind,item['result'],static_enabled,base)
+                artifacts[kind]=dict(phase='done')
+            except Exception as exc:artifacts[kind]=dict(phase='error',message=_reason(exc))
+        failed_zip=artifacts.get('zip',{}).get('phase')=='error'
+        if failed_zip:state['output_retry_zip']=dict(snapshot=task['snapshot'],version=job['version'],revision=job['revision'],id=job['id'])
+        else:state.pop('output_retry_zip',None)
+        phase='done' if any(a['phase']=='done' for a in artifacts.values()) else 'error'
+        message='；'.join(f"{kind.upper()}{'已產生' if a['phase']=='done' else '失敗：'+a['message']}" for kind,a in artifacts.items())
+        if phase=='error':message+='；草稿及上一個成功檔案仍保留。'
+        state['output_status']=dict(id=job['id'],kind=job['kind'],version=job['version'],phase=phase,artifacts=artifacts,retry_zip=failed_zip,message=message)
     except Exception as exc:
-        reason=str(exc) if isinstance(exc,(ValueError,RuntimeError,OSError,TimeoutError,MemoryError)) else '處理發生未預期錯誤'
+        reason=_reason(exc)
         message=f"{'ZIP' if job['kind']=='zip' else 'MP4'}未完成：{reason}；草稿及上一個成功檔案仍保留，可重新按原按鈕。"
-        state['output_status']=dict(id=job['id'],kind=job['kind'],version=job['version'],phase='error',message=message)
+        retry=job['kind']=='zip' and task is not None and 'snapshot' in task
+        if retry:state['output_retry_zip']=dict(snapshot=task['snapshot'],version=job['version'],revision=job['revision'],id=job['id'])
+        state['output_status']=dict(id=job['id'],kind=job['kind'],version=job['version'],phase='error',message=message,retry_zip=retry)
         state['notice']=message;state['notice_error']=True
     finally:
         state.pop('output_task',None);state['editor_busy']=False
@@ -121,12 +161,23 @@ def prepare(state,event,version):
     source=snapshot(state)
     if project_version(source)!=version:raise ValueError('快照版本不符，請重新下載或輸出。')
     state['prepared_output']=dict(id=event['nonce'],kind='zip' if event['action']=='save_project' else 'mp4',
-        version=version,revision=state.get('revision'),snapshot=source,created=time.monotonic())
+        version=version,revision=state.get('revision'),snapshot=source,created=time.monotonic(),zip_backup=event.get('zip_backup') is True)
+    state.pop('output_retry_zip',None)
     state['output_status']=dict(id=event['nonce'],kind=state['prepared_output']['kind'],version=version,phase='prepared')
+
+
+def retry_zip(state,event):
+    saved=state.get('output_retry_zip')
+    if state.get('prepared_output') or state.get('output_task'):raise ValueError('上一個輸出尚未完成。')
+    if not saved or saved['id']!=event.get('operation_id') or saved['version']!=event.get('content_version'):
+        raise ValueError('原ZIP快照已失效，請重新輸出。')
+    state['prepared_output']=dict(id=event['nonce'],kind='zip',version=saved['version'],revision=saved['revision'],snapshot=saved['snapshot'],created=time.monotonic())
+    start(state,dict(operation_id=event['nonce'],content_version=saved['version'],session=event['session']))
 
 
 def release(state):
     """工作區核准重設後撤銷短效下載；進行中的工作由既有保護阻擋。"""
     from .downloads import revoke
     revoke(state.get('project_archive'))
-    for key in ('prepared_output','output_task','output_status'):state.pop(key,None)
+    revoke(state.get('mp4_download'))
+    for key in ('prepared_output','output_task','output_status','mp4_download','mp4_download_request_id','output_retry_zip'):state.pop(key,None)

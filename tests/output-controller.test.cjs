@@ -4,7 +4,7 @@ function setup(saved){
   let serial=0,resolve,reject,version='A';const sent=[],files=[],stored=[];
   const c=new OutputController({uuid:()=>`id-${++serial}`,pending:()=>false,version:()=>version,
     persist:()=>stored.push(JSON.parse(JSON.stringify(c.persisted()))),
-    sync:(action,id,width)=>new Promise((yes,no)=>{resolve=yes;reject=no;sent.push({action,id,width,version});}),
+    sync:(action,id,width,options)=>new Promise((yes,no)=>{resolve=yes;reject=no;sent.push({action,id,width,version,options});}),
     post:e=>sent.push(e),download:d=>files.push(d)});
   if(saved)c.restore(saved);
   return {c,sent,files,stored,change:v=>version=v,resolve:()=>resolve(),reject:e=>reject(e)};
@@ -59,4 +59,55 @@ test('ACK清除pending後元件恰好重建，可用精確seq與版本續接；�
   assert.equal(retry.sent[0].action,'cancel_output');retry.c.receive({id,phase:'prepared',version:'A'},null);
   assert.equal(retry.sent.length,1);
   x.resolve();await p;
+});
+
+test('ZIP備份預設勾選、取消後重建保留，輸出選項只傳握手不改內容版本',async()=>{
+  const x=setup();assert.equal(x.c.status().zipBackup,true);x.c.setZipBackup(false);
+  const y=setup(x.c.persisted());assert.equal(y.c.status().zipBackup,false);
+  const p=y.c.request('mp4',360);assert.equal(y.sent[0].options.zip_backup,false);assert.equal(y.c.intent.version,'A');y.resolve();await p;
+  const z=setup(),q=z.c.request('mp4',360);assert.equal(z.sent[0].options.zip_backup,true);z.resolve();await q;
+});
+
+test('MP4與ZIP分檔去重、先存收據，連續rerun／重建不再下載且收據合併送出',async()=>{
+  const x=setup(),p=x.c.request('mp4',360),id=x.c.intent.id;
+  x.c.ack({nonce:id,ok:true,content_version:'A',operation_id:id});x.resolve();await p;x.change('B');
+  const status={id,phase:'done',artifacts:{mp4:{phase:'done'},zip:{phase:'done'}}};
+  const zip={request_id:id,content_version:'A',filename:'a.zip'},mp4={request_id:id,content_version:'A',filename:'a.mp4'};
+  x.c.receive(status,zip,null,mp4);assert.deepEqual(x.files.map(f=>f.filename),['a.mp4','a.zip']);
+  assert.ok(x.c.receipts.includes(id)&&x.c.receipts.includes(id+':mp4'));assert.equal(x.sent.at(-1).action,'downloads_requested');assert.equal(x.sent.at(-1).downloads.length,2);
+  x.c.receive(status,zip,null,mp4);assert.equal(x.files.length,2);
+  const rebuilt=setup(x.c.persisted());rebuilt.c.receive(status,zip,null,mp4);assert.equal(rebuilt.files.length,0);
+  assert.equal(x.c.status().zipBackup,true);assert.equal('backup_confirmed_version' in x.c.persisted(),false);
+});
+
+test('單檔被阻擋不阻止另一檔，錯版本與舊成果不冒充本次下載',async()=>{
+  const x=setup(),p=x.c.request('mp4',360),id=x.c.intent.id;
+  x.c.ack({nonce:id,ok:true,content_version:'A',operation_id:id});x.resolve();await p;
+  x.c.h.download=d=>{if(d.filename.endsWith('.mp4'))throw new Error('blocked');x.files.push(d);};
+  const zip={request_id:id,content_version:'A',filename:'a.zip'},mp4={request_id:id,content_version:'wrong',filename:'a.mp4'};
+  const done={id,phase:'done',artifacts:{zip:{phase:'done'},mp4:{phase:'done'}}};
+  x.c.receive(done,zip,null,mp4);assert.equal(x.files.length,1);mp4.content_version='A';x.c.receive(done,zip,null,mp4);
+  assert.ok(x.c.status().message.includes('備用下載'));assert.equal(x.c.status().mp4Delivery,mp4);
+  x.c.receive(done,zip,null,mp4);assert.equal(x.files.length,1);
+});
+
+test('部分失敗只下載成功檔、ZIP重試鎖定原版本且不重新捕捉草稿',async()=>{
+  const x=setup(),p=x.c.request('mp4',360),id=x.c.intent.id;
+  x.c.ack({nonce:id,ok:true,content_version:'A',operation_id:id});x.resolve();await p;x.change('B');
+  const zip={request_id:'old',content_version:'old'},mp4={request_id:id,content_version:'A',filename:'a.mp4'};
+  x.c.receive({id,phase:'done',retry_zip:true,artifacts:{mp4:{phase:'done'},zip:{phase:'error',message:'ZIP失敗'}}},zip,null,mp4);
+  assert.equal(x.files.length,1);assert.equal(x.files[0],mp4);assert.equal(x.c.status().retryZip,true);assert.equal(x.c.status().error,true);
+  x.c.retryZip();const retry=x.sent.at(-1);assert.equal(retry.action,'retry_output_zip');assert.equal(retry.operation_id,id);assert.equal(retry.content_version,'A');assert.notEqual(retry.nonce,id);
+  assert.equal(x.c.intent.version,'A');assert.equal(x.c.intent.kind,'zip');assert.equal(x.sent.filter(e=>e.action==='export').length,1);
+});
+
+test('ZIP成功但MP4失敗仍可自動下載ZIP，兩者失敗不下載舊成果',async()=>{
+  for(const zipOk of [true,false]){
+    const x=setup(),p=x.c.request('mp4',360),id=x.c.intent.id;
+    x.c.ack({nonce:id,ok:true,content_version:'A',operation_id:id});x.resolve();await p;
+    x.c.receive({id,phase:zipOk?'done':'error',message:'本次失敗',retry_zip:!zipOk,artifacts:{mp4:{phase:'error',message:'MP4故障'},zip:{phase:zipOk?'done':'error',message:'ZIP故障'}}},
+      {request_id:id,content_version:'A',filename:'a.zip'},null,{request_id:'previous',content_version:'previous',filename:'old.mp4'});
+    assert.equal(x.files.length,zipOk?1:0);if(zipOk)assert.equal(x.files[0].filename,'a.zip');
+    assert.equal(x.c.status().error,true);
+  }
 });

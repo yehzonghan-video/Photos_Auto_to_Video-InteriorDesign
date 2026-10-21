@@ -15,7 +15,7 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 5:
+    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 6:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.rendering import font_path,template_config
@@ -340,6 +340,7 @@ try:
            ai_imports=st.session_state.ai_imports,undo_photo=undo_preview(st.session_state),
            versions=versioning.status(st.session_state),guard_request=st.session_state.get('guard_request'),
            output_status=st.session_state.get('output_status'),zip_delivery=delivery(st.session_state.get('project_archive'),st.session_state.get('zip_download_request_id')),
+           mp4_delivery=delivery(st.session_state.get('mp4_download'),st.session_state.get('mp4_download_request_id')),
            key="studio_editor", default=None)
 except (RuntimeError, OSError) as exc:
     st.error(str(exc))
@@ -393,5 +394,6 @@ if st.session_state.output:
         st.download_button("下載 MP4 影片", data=st.session_state.output, file_name=f"室內設計案例_{version[4:16] if version else '來源版本未知'}.mp4",
                            mime="video/mp4", type="primary", use_container_width=True, on_click="ignore")
         st.caption(f"檔案大小 {len(st.session_state.output)/1024/1024:.2f} MB")
+        if (st.session_state.get('mp4_download') or {}).get('download_warning'):st.info(st.session_state.mp4_download['download_warning'])
     with preview:
         st.video(st.session_state.output)
