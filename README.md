@@ -2,6 +2,8 @@
 
 GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-video/Photos_Auto_to_Video-InteriorDesign)
 
+新增第六階段「快速修改標題」：**選快速模式 → 匯入 ZIP → 修改一次影片標題 → 分別調整封面／正文的反白字色、字級、換行與位置 → 比較原始快照 → 輸出同版本 MP4＋ZIP**。沿用現有三套模板、素材、時間軸及輸出；可隨時進入完整編輯器。詳細操作、舊專案關聯確認、格式版本及測試見 [快速修改標題](docs/QUICK_TITLE_EDIT.md)。
+
 可操作的 Streamlit 網頁：共用密碼入口、照片管理、前端即時標籤／拖曳、Gemini 辨識、多軌時間軸、透明 PNG 圖層、BGM、專案ZIP儲存／匯入及 FFmpeg H.264 輸出。登入後，沒有 Gemini 金鑰仍能手動製片。專案保存參閱 [專案檔操作](docs/PROJECT_FILES.md)，時間軸操作、同步與測試請參閱 [第三階段說明](docs/TIMELINE_PNG.md)，音樂參閱 [BGM操作](docs/BGM.md)，AI 設定參閱 [AI 功能說明](docs/AI.md)，輸出限制參閱 [技術可行性](docs/FEASIBILITY.md)。
 
 新增第五階段「空間導覽」：**選模板 → 上傳平面圖 → 點圖建立房間 → 加照片／MP4 → 時間軸排列並指定所在空間 → 預覽 → 輸出 MP4／下載 ZIP**。右上角完整平面圖依目前片段切換靜態紅點，未指定房間不顯示點；封面不顯示平面圖。詳細操作、素材限制與測試見 [空間導覽說明](docs/FLOOR_PLAN_TOUR.md)。
@@ -18,7 +20,7 @@ GitHub：[Photos_Auto_to_Video-InteriorDesign](https://github.com/yehzonghan-vid
 
 雙檔輸出更新：「輸出 H.264 MP4」旁預設勾選「同時下載 ZIP 專案備份」。兩檔共用同一固定快照與版本，完成後分別提出下載請求；可取消勾選只輸出MP4，獨立ZIP按鈕保留。部分失敗仍保留成功成果，ZIP可重試原版本；自動下載不代表備份已保存，仍需手動確認。瀏覽器可能阻擋第二檔，兩檔皆保留備用下載。適用三套模板，詳見[雙檔輸出與驗收](docs/DUAL_OUTPUT.md)。
 
-最新雙檔回歸：179項Python、101項JavaScript通過，包含三模板真實MP4輸出／完整解碼與ZIP還原。本機瀏覽器已驗證選項保留、雙檔同版本完成及下載請求狀態；未確認兩檔皆實際存入電腦，Cloud與Chrome／Edge多檔下載仍待人工驗收。
+最新快速標題回歸：189項Python、110項JavaScript通過，包含三模板真實MP4輸出／解碼、修改後標題畫面比對及新版ZIP還原。本機瀏覽器驗收與未測環境詳見[快速修改標題](docs/QUICK_TITLE_EDIT.md)；自動下載請求不等於兩檔已保存，Cloud與Chrome／Edge多檔下載仍待人工驗收。
 
 第四階段操作更新：前後對比來源庫可按「建議配對（不呼叫AI）」，只參考現有AI標籤／說明、分類及檔名，證據不足不強配；接受才新增，共用來源需確認且保留舊片段。可直接更換或交換前後照片，改分類不再刪除配對。刪除來源先列出實際影響，並可復原最近一次來源刪除；後續有內容修改時保守拒絕覆蓋。157項Python、91項Node通過，已實測本機建議、交換、刪除、ZIP下載及同步後復原。詳見 [智慧配對、復原與限制](docs/SMART_PAIRING.md)。
 

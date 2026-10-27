@@ -36,8 +36,9 @@ function environment(storage=new Map()) {
     body:element('body'),createElement:element,createTextNode:text=>({textContent:text}),querySelector:()=>element(),querySelectorAll:()=>[...elements.values()],addEventListener(){},removeEventListener(){}};
   class FakeImage {constructor(){this.naturalWidth=220;this.naturalHeight=110;} set src(value){this._src=value;Promise.resolve().then(()=>this.onload?.());}get src(){return this._src;}}
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
+  window.StudioTitle=require('../frontend/title-model.js');
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioOutput:require('../frontend/output-controller.js'),
+    StudioOutput:require('../frontend/output-controller.js'),StudioTitle:window.StudioTitle,
     StudioPairing:require('../frontend/pairing.js'),StudioPhotoHistory:require('../frontend/photo-history.js'),
     StudioTour:require('../frontend/tour-model.js'),
     StudioDraft:{DraftState,metadata},StudioVersion,StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
@@ -53,6 +54,7 @@ function environment(storage=new Map()) {
   vm.runInContext(fs.readFileSync('frontend/body-editor.js','utf8'),context);
   context.StudioBody=window.StudioBody;
   context.StudioBody.configure(JSON.parse(fs.readFileSync('frontend/body-layout.json','utf8')));
+  vm.runInContext(fs.readFileSync('frontend/quick-title.js','utf8'),context);context.StudioQuickTitle=window.StudioQuickTitle;
   context.StudioTimelineUI=window.StudioTimelineUI;context.StudioPNG=window.StudioPNG;context.StudioComparisonUI=window.StudioComparisonUI;
   vm.runInContext(fs.readFileSync('frontend/editor.js','utf8'),context);
   const rows=()=>[{id:'p1',content_hash:'hash',name:'first',image:'image1',tiles:{},labels:[],duration:4,zoom:1,crop_x:.5,crop_y:.5,fit:'contain'},
@@ -723,4 +725,49 @@ test('雙檔選項預設開啟、切換不改草稿seq與內容雜湊，重建�
   assert.equal(run('draft.seq'),seq);assert.equal(run('draft.currentVersion()'),version);
   const restored=environment(env.storage);await restored.receive({project,versions});assert.equal(restored.context.window.StudioOutputBridge.status().zipBackup,false);
   restored.context.window.StudioOutputBridge.capture('mp4',1080);assert.equal(restored.changes()[0].value.zip_backup,false);
+});
+
+function quickProject(env,follow=true){return {photos:env.rows(),cover_assets:{layout:require('../frontend/cover-layout.json')},cover:{enabled:true,title:'老屋超強收納',photo_id:'p1',color:'#ffffff',font_size:120,highlights:[],body:{...StudioBodyForQuick(),follow_cover:follow,title:follow?'老屋超強收納':'不同正文標題'}}};}
+function StudioBodyForQuick(){return require('../frontend/body-editor.js').newBody();}
+
+test('第六階段：快速入口／預覽與未修改欄位不增加seq，修改一次同步兩處且只改標題資料',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),project=quickProject(env);
+  await env.receive({project,ui_mode:'quick'});assert.equal(run('quickEditor.active'),true);const seq=run('draft.seq'),before=run('JSON.stringify(draft.rows)');
+  get('qtBody').onclick();get('qtCover').onclick();get('qtCoverFont').value=120;get('qtCoverFont').oninput();get('qtCoverX').value=50;get('qtCoverX').oninput();
+  assert.equal(run('draft.seq'),seq);assert.equal(run('draft.cover.shared_title'),undefined);
+  get('qtTitle').value='18坪小宅超強收納';get('qtTitle').oninput();assert.equal(run('draft.cover.title'),'18坪小宅超強收納');assert.equal(run('draft.cover.body.title'),'18坪小宅超強收納');
+  assert.equal(run('JSON.stringify(draft.rows)'),before);assert.equal(run('draft.cover.body.font_size'),100);assert.equal(env.changes().length,0);
+});
+
+test('第六階段：沒有明確關聯須確認固定ID，不以相同文字或一般標籤自動替換',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),project=quickProject(env,false);
+  await env.receive({project,ui_mode:'quick'});assert.equal(get('qtTitle').disabled,true);const seq=run('draft.seq');get('qtBody').onclick();assert.equal(run('draft.seq'),seq);
+  get('qtTitleSource').value='body';get('qtConfirmLink').onclick();assert.equal(run('draft.cover.shared_title.cover_id'),'project-cover-title');assert.equal(run('draft.cover.title'),'不同正文標題');assert.equal(run('draft.cover.body.title'),'不同正文標題');
+});
+
+test('第六階段：分別反白換色／換行／字級／位置；畫布真正拖曳，無每次操作同步',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id);await env.receive({project:quickProject(env),ui_mode:'quick'});
+  get('qtTitle').value='18坪小宅超強收納';get('qtTitle').oninput();get('qtTitle').selectionStart=5;get('qtTitle').selectionEnd=9;
+  get('qtCoverHighlight').value='#ffff00';get('qtCoverApply').onclick();get('qtBodyHighlight').value='#00aaff';get('qtBodyApply').onclick();
+  assert.equal(run('draft.cover.highlights[0].color'),'#ffff00');assert.equal(run('draft.cover.body.highlights[0].color'),'#00aaff');
+  get('qtCoverWrap').value='18坪小宅\n超強收納';get('qtCoverWrap').oninput();assert.equal(run('draft.cover.body.title'),'18坪小宅超強收納');
+  get('qtBodyFont').value=88;get('qtBodyFont').oninput();assert.equal(run('draft.cover.font_size'),120);
+  const box=run('StudioTitle.coverBox(draft.cover)'),canvas=get('canvas');canvas.dispatch('pointerdown',{clientX:box.x+150,clientY:box.y+100});canvas.dispatch('pointermove',{clientX:box.x+190,clientY:box.y+130});canvas.dispatch('pointerup');
+  assert.ok(run('draft.cover.shared_title.cover_x')>.5);assert.equal(run('draft.cover.body.x'),.5);assert.equal(env.changes().length,0);
+  get('qtCoverX').value=0;get('qtCoverX').oninput();assert.match(get('qtCoverWarning').textContent,/超出/);
+  // 播放與拖曳重繪共用同一文字圖，不在每一影格重新掃描像素。
+  run("quickEditor.boundsCache=new WeakMap();var boundsCalls=0,priorBounds=StudioBody.alphaBounds;StudioBody.alphaBounds=(...args)=>{boundsCalls++;return priorBounds(...args);};var titleTile=coverEditor.tile();for(let i=0;i<30;i++)quickEditor.boundsWarning('cover',StudioTitle.coverBox(draft.cover),titleTile);StudioBody.alphaBounds=priorBounds;");
+  assert.equal(run('boundsCalls'),1);
+});
+
+test('第六階段：原始比較只送唯讀影格請求、不能編輯，返回完整模式保留未同步修改',async()=>{
+  const env=environment(),run=s=>vm.runInContext(s,env.context),get=id=>env.elements.get(id),project=quickProject(env);await env.receive({project,ui_mode:'quick'});
+  get('qtTitle').value='快速修改完成';get('qtTitle').oninput();const seq=run('draft.seq');get('qtCompare').value='original';get('qtCompare').onchange();
+  assert.equal(env.changes()[0].value.action,'quick_original');assert.equal(run('draft.seq'),seq);get('canvas').dispatch('keydown',{key:'ArrowLeft'});assert.equal(run('draft.seq'),seq);
+  await env.receive({project,ui_mode:'quick',quick_frames:{'project-cover':{image:'original-frame',time:0,name:'原始封面'}}});assert.equal(run('quickEditor.image.src'),'original-frame');assert.equal(run('draft.cover.title'),'快速修改完成');
+  get('qtFull').onclick();assert.equal(env.changes().at(-1).value.action,'set_edit_mode');await env.receive({project,ui_mode:'full'});
+  assert.equal(run('quickEditor.active'),false);assert.equal(run('draft.cover.title'),'快速修改完成');assert.equal(run('draft.seq'),seq);
+  assert.match(get('bodyFollowLabel').textContent,/樣式獨立/);
+  get('bodyTitle').value='完整模式\n繼續修改';get('bodyTitle').oninput();
+  assert.equal(run('draft.cover.shared_title.text'),'完整模式繼續修改');assert.equal(run('draft.cover.title'),'完整模式繼續修改');assert.equal(run('draft.cover.body.title'),'完整模式\n繼續修改');
 });

@@ -18,7 +18,8 @@ def prepare_download(state):
             raise ValueError('專案內容已更新，請重新儲存最新版本。')
         with st.spinner('正在打包專案設定、照片、PNG與BGM…'):
             data = build_archive(state)
-        state['project_archive'] = dict(data=data, filename=archive_filename(state['cover']['title']), revision=state['revision'],content_version=version)
+        from .titles import project_title
+        state['project_archive'] = dict(data=data, filename=archive_filename(project_title(state['cover'])), revision=state['revision'],content_version=version)
         state['zip_version']=version
         completed=True
     except ValueError as exc:
@@ -33,8 +34,8 @@ def prepare_download(state):
                                     'message':state['notice']}
 
 
-def import_panel(state):
-    with st.expander('開啟舊專案（ZIP）', expanded=not state['photos']):
+def import_panel(state,expanded=None):
+    with st.expander('開啟舊專案（ZIP）', expanded=not state['photos'] if expanded is None else expanded):
         st.caption('匯入會取代目前工作區；需要保留現有內容時，請先儲存專案。')
         source = st.file_uploader('選擇工作室專案檔', type=['zip'], max_upload_size=MAX_ARCHIVE_MB,
                                   key=f"project_import_{state['project_import_epoch']}")

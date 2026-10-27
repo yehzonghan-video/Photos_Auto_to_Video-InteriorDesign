@@ -1,6 +1,7 @@
 // 封面與局部字色只操作本地草稿；套用／輸出時沿用既有整批同步。
 (function(root){
   let layout=typeof module!=='undefined'?require('./cover-layout.json'):null;
+  const T=typeof module!=='undefined'?require('./title-model.js'):root.StudioTitle;
   const $=id=>document.getElementById(id),duration=c=>c?.enabled===true ? layout.duration : 0;
   function configure(value){if(value)layout=value;}
   function key(c){return JSON.stringify([c.title,c.color,c.font_size,c.highlights,2,layout?.title]);}
@@ -14,7 +15,7 @@
   function ensureSource(c,photos){if(!c||photos.some(p=>p.id===c.photo_id))return false;
     c.photo_id=(photos.find(p=>p.role==='after')||photos[0])?.id||'';return true;}
   function validate(c,photos,maxFontSize=160){if(!c)return null;
-    if(typeof c.enabled!=='boolean'||typeof c.title!=='string'||(c.enabled&&!c.title.trim())||Array.from(c.title).length>80||c.title.split('\n').length>6)return '封面標題需為1～80字，最多6行。';
+    if(typeof c.enabled!=='boolean'||typeof c.title!=='string'||(c.enabled&&!c.title.trim())||Array.from(c.title.replace(/\n/g,'')).length>80||c.title.split('\n').length>6)return '封面標題需為1～80字，最多6行。';
     if(c.enabled&&photos.length&&!photos.some(p=>p.id===c.photo_id))return '請選擇封面照片。';
     const hex=v=>/^#[0-9a-fA-F]{6}$/.test(v);
     if(!hex(c.color)||!Number.isInteger(c.font_size)||c.font_size<36||c.font_size>maxFontSize||!Array.isArray(c.highlights)||c.highlights.length>80)return '封面樣式設定不正確。';
@@ -29,7 +30,7 @@
     const palette=colors(c);ctx.textBaseline='alphabetic';ctx.strokeStyle='#000000';ctx.lineWidth=4;ctx.lineJoin='round';
     lines.forEach((line,row)=>{const left=(box.width-ctx.measureText(line.map(v=>v.char).join('')).width)/2;let prefix='';
       for(const {char,index} of line){const x=left+ctx.measureText(prefix).width,y=(box.height-lines.length*step)/2+row*step+size;
-        ctx.strokeText(char,x,y);ctx.fillStyle=palette[index];ctx.fillText(char,x,y);prefix+=char;}});return canvas;}
+        ctx.strokeText(char,x,y);ctx.fillStyle=palette[index];ctx.fillText(char,x,y);prefix+=char;}});canvas.titleMetrics={font_size:size,lines:lines.length};return canvas;}
   function mountGuide(element){element.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" aria-hidden="true"><g transform="translate(${layout.origin.x} ${layout.origin.y})" fill="none" stroke="white" stroke-opacity=".8" stroke-width="8">${[layout.title,layout.photo].map(b=>`<rect x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}"/>`).join('')}</g></svg>`;}
   class CoverEditor{
     constructor(hooks){this.hooks=hooks;this.template=null;this.calibrated=null;this.local=null;this.selection=null;this.scene=null;
@@ -37,7 +38,9 @@
         const delta=duration(c)-prior;for(const slot of hooks.slots())for(const o of slot)o.start=Math.max(0,o.start+delta);
         for(const k of ['','logo_'])if(c.body?.[k+'auto_timing']===false){c.body[k+'start']=Math.max(0,c.body[k+'start']+delta);c.body[k+'end']=Math.max(0,c.body[k+'end']+delta);}
         hooks.change();};
-      $('coverTitle').oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;c.title=$('coverTitle').value;c.highlights=[];this.selection=null;hooks.change();};
+      $('coverTitle').oninput=()=>{const c=hooks.cover();if(!c||hooks.locked())return;
+        if(c.shared_title){try{T.setDisplay(c,'cover',$('coverTitle').value);}catch(e){hooks.status(e.message,true);return;}}else {c.title=$('coverTitle').value;c.highlights=[];}
+        this.selection=null;hooks.change();};
       const capture=()=>{this.selection=selection($('coverTitle'),this.selection);
         $('coverSelection').textContent=this.selection?'已選：'+Array.from(this.selection.value).slice(this.selection.start,this.selection.end).join(''):'先在標題輸入框反白要改色的文字';};
       for(const event of ['select','pointerup','keyup','blur'])$('coverTitle')['on'+event]=capture;
@@ -56,14 +59,16 @@
       $('coverPhoto').replaceChildren();for(const p of this.hooks.photos()){const option=document.createElement('option');option.value=p.id;option.textContent=p.name;$('coverPhoto').append(option);}$('coverPhoto').value=c.photo_id;
       $('coverColorPreview').replaceChildren();const palette=colors(c);Array.from(c.title).forEach((char,i)=>{const span=document.createElement('span');span.textContent=char;span.style.color=palette[i];$('coverColorPreview').append(span);});
     }
+    tile(){const c=this.hooks.cover(),titleKey=key(c);if(this.calibrated?.key===titleKey)return this.calibrated.image;
+      if(this.local?.key!==titleKey)this.local={key:titleKey,image:raster(c,()=>document.createElement('canvas'))};return this.local.image;}
     draw(ctx){const c=this.hooks.cover();if(!c)return;
       ctx.save();ctx.translate(layout.origin.x,layout.origin.y);
       if(this.template){const scale=Math.min(layout.width/this.template.naturalWidth,layout.height/this.template.naturalHeight);ctx.drawImage(this.template,(layout.width-this.template.naturalWidth*scale)/2,0,this.template.naturalWidth*scale,this.template.naturalHeight*scale);}
       const image=this.hooks.images().get(c.photo_id),box=layout.photo;
       if(image){const fit=StudioPhoto.layout(image.naturalWidth,image.naturalHeight,box.width,box.height,{fit:'contain',zoom:1,crop_x:.5,crop_y:.5});ctx.drawImage(image,fit.sx,fit.sy,fit.sw,fit.sh,box.x+fit.dx,box.y+fit.dy,fit.dw,fit.dh);}
-      const titleKey=key(c);let tile=this.calibrated?.key===titleKey?this.calibrated.image:null;
-      if(!tile){if(this.local?.key!==titleKey)this.local={key:titleKey,image:raster(c,()=>document.createElement('canvas'))};tile=this.local.image;}
-      ctx.drawImage(tile,layout.title.x,layout.title.y,layout.title.width,layout.title.height);
+      const tile=this.tile();
+      const placed=c.shared_title?T.coverBox(c):{...layout.title,x:layout.title.x+layout.origin.x,y:layout.title.y+layout.origin.y};
+      ctx.drawImage(tile,placed.x-layout.origin.x,placed.y-layout.origin.y,layout.title.width,layout.title.height);
       ctx.restore();
     }
   }

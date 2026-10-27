@@ -28,8 +28,8 @@ PROJECT_KEYS = ('overlays', 'comparisons', 'comparison_overlays', 'cover', 'musi
 
 
 def archive_filename(title):
-    clean = re.sub(r'[<>:"/\\|?*\x00-\x1f]', ' ', str(title)).strip(' .')[:60]
-    return (clean or '室內設計案例') + '_專案.zip'
+    from .titles import filename
+    return filename(title,'zip')
 
 
 def build_archive(state):
@@ -45,7 +45,7 @@ def build_archive(state):
     if not photos and not (extended and (state.get('video_assets') or state.get('floor_plan'))):
         raise ValueError('請先加入照片再儲存專案。')
     from .versioning import project_version
-    manifest = dict(format=FORMAT, version=2 if extended else VERSION, content_version=project_version(state),created_at=datetime.now(timezone.utc).isoformat(),
+    manifest = dict(format=FORMAT, version=3 if state['cover'].get('shared_title') else 2 if extended else VERSION, content_version=project_version(state),created_at=datetime.now(timezone.utc).isoformat(),
                     video=dict(width=state.get('video_width', 1080), fps=30),
                     template_id=state.get('template_mode', 'items'), photos=[], assets=[], music_asset=None,
                     **{key: state[key] for key in PROJECT_KEYS})
@@ -134,7 +134,7 @@ def _load_archive(data):
         manifest = json.loads(bundle.read('manifest.json').decode('utf-8'))
         if not isinstance(manifest, dict) or manifest.get('format') != FORMAT:
             raise ValueError('這不是案例影片工作室的專案檔。')
-        if type(manifest.get('version')) is not int or manifest['version'] not in (1,2):
+        if type(manifest.get('version')) is not int or manifest['version'] not in (1,2,3):
             raise ValueError('此專案版本尚不支援，請使用相容版本的工作室開啟。')
         template = manifest.get('template_id')
         video = manifest.get('video')
@@ -256,3 +256,5 @@ def install_project(state, project):
     state['photo_upload_epochs'] = {role:state.get('photo_upload_epochs',{}).get(role,0)+1 for role in ('general','before','after')}
     # 原始ZIP已存在；重新驗證後計算本機內容版本，不相信檔案自稱的版本或備份狀態。
     state['backup_confirmed_version']=refresh(state)
+    from .quick_preview import capture
+    capture(state)

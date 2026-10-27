@@ -58,6 +58,7 @@
     if(!photos.some(p=>p.id===cover.photo_id))cover.photo_id=photos.find(p=>p.role==='after')?.id||photos[0]?.id||'';
     cover.body=normalize(raw?.body,'body');if(raw==null)Object.assign(cover.body,{enabled:false,logo_enabled:false});
     cover.body.highlights=(raw?.body?.highlights||[]).map(r=>({...r,color:r.color.toLowerCase()}));
+    if(raw?.shared_title)cover.shared_title=Object.fromEntries(['version','cover_id','body_id','text','cover_x','cover_y','cover_breaks','body_breaks'].map(k=>[k,raw.shared_title[k]]));
     const names=new Map((context.assets||[]).map(a=>[a.id,a.name]));
     const overlays=rows=>(rows||[]).map(o=>({...normalize(o,'overlay'),name:names.get(o.source)??o.name??''}));
     const result={schema:'interior-content-v1',photos,comparisons,cover,overlays:overlays(data.overlays),

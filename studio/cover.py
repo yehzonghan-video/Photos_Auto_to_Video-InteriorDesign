@@ -34,12 +34,24 @@ def validate_cover(raw, photos):
     result=dict(enabled=raw['enabled'],photo_id=source,**style)
     from .body import validate_body
     result['body']=validate_body(raw.get('body'),result)
+    if raw.get('shared_title') is not None:
+        from .titles import validate_link
+        result['shared_title']=validate_link(raw['shared_title'],result,result['body'])
     return result
+
+
+def title_box(cover):
+    linked=cover.get('shared_title')
+    if linked:
+        return dict(x=round(linked['cover_x']*1080-LAYOUT['title']['width']/2),
+                    y=round(linked['cover_y']*1920-LAYOUT['title']['height']/2),
+                    width=LAYOUT['title']['width'],height=LAYOUT['title']['height'])
+    return {**LAYOUT['title'],'x':LAYOUT['title']['x']+LAYOUT['origin']['x'],'y':LAYOUT['title']['y']+LAYOUT['origin']['y']}
 
 
 def validate_title(raw, required, context, max_font_size=160):
     title=raw.get('title','')
-    if not isinstance(title,str) or (required and not title.strip()) or len(title)>80 or title.count('\n')>5:
+    if not isinstance(title,str) or (required and not title.strip()) or len(title.replace('\n',''))>80 or title.count('\n')>5:
         raise ValueError(f'{context}標題需為1～80字，最多6行。')
     ranges=raw.get('highlights',[])
     if not isinstance(ranges,list) or len(ranges)>80:raise ValueError(f'{context}局部字色過多。')
@@ -109,6 +121,7 @@ def cover_frame(cover,photos):
         working=ImageOps.exif_transpose(image).convert('RGBA')
         fitted=ImageOps.contain(working,(box['width'],box['height']),Image.Resampling.LANCZOS)
         frame.alpha_composite(fitted,(box['x']+(box['width']-fitted.width)//2,box['y']+(box['height']-fitted.height)//2))
-    frame.alpha_composite(title_tile(cover),(LAYOUT['title']['x'],LAYOUT['title']['y']))
     canvas.alpha_composite(frame,(LAYOUT['origin']['x'],LAYOUT['origin']['y']))
+    placed=title_box(cover)
+    canvas.alpha_composite(title_tile(cover),(placed['x'],placed['y']))
     return canvas

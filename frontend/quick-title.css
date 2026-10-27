@@ -1,0 +1,11 @@
+.quick-mode>.strip-header,.quick-mode>#photos,.quick-mode>#versionStatus~details.asset-section,.quick-mode>#tourPanel,.quick-mode>#comparisonBank,.quick-mode>.timeline-section{display:none!important}
+.quick-mode #settingsPanel,.quick-mode .browser-export,.quick-mode .playback #edit{display:none!important}
+.quick-mode .preview-panel>p.hint{display:none}
+#quickTitlePanel input[type=text],#qtTitle{width:100%;box-sizing:border-box;font-size:20px;padding:10px}
+#quickSettings input[type=number]{width:100%;box-sizing:border-box}
+#quickSettings details{margin-bottom:18px}#quickSettings button{margin:5px 3px 5px 0}
+#quickOriginalImage{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:black;pointer-events:none;z-index:1}
+.quick-mode .safe-area-guide{z-index:2}
+.quick-mode #qtMessage,.quick-mode #qtCoverWarning,.quick-mode #qtBodyWarning{white-space:pre-line}
+[hidden]{display:none!important}
+@media(max-width:700px){#quickTitlePanel .row{flex-wrap:wrap}#quickTitlePanel select{max-width:100%}}

@@ -41,9 +41,10 @@ def _run(source, kind, version, progress):
     started=time.monotonic()
     if kind=='zip':
         from .project_io import build_archive, archive_filename
+        from .titles import project_title
         progress(.1,'正在產生ZIP…')
         data=build_archive(source)
-        return dict(data=data,filename=archive_filename(source['cover']['title']))
+        return dict(data=data,filename=archive_filename(project_title(source['cover'])))
     from .export import export_video
     width=source['video_width'];compare=source['template_mode']=='compare'
     data=export_video(source['photos'],width,width*16//9,progress=progress,
@@ -51,7 +52,8 @@ def _run(source, kind, version, progress):
         assets=source['overlay_assets'],template=source['template_mode'],comparisons=source['comparisons'],
         cover=source['cover'],music=source['music'],music_asset=source['music_asset'],
         **(dict(tour=source['tour'],floor_plan=source['floor_plan'],videos=source['video_assets']) if source['template_mode']=='tour' else {}))
-    return dict(data=data,seconds=round(time.monotonic()-started,1))
+    from .titles import project_title,filename
+    return dict(data=data,seconds=round(time.monotonic()-started,1),filename=filename(project_title(source['cover']),'mp4'))
 
 
 def _reason(exc):
@@ -110,7 +112,7 @@ def _store(state,job,kind,result,static_enabled,base):
     from .downloads import publish,revoke
     meta=dict(request_id=job['id'],content_version=job['version'],revision=job['revision'])
     if kind=='zip':archive=dict(**result,**meta)
-    else:archive=dict(**meta,filename=f"室內設計案例_{job['version'][4:16]}.mp4")
+    else:archive=dict(**meta,filename=result.get('filename',f"室內設計案例_{job['version'][4:16]}.mp4"))
     if static_enabled:
         try:archive.update(publish(result['data'],base,kind))
         except (OSError,MemoryError):archive['download_warning']='無法建立短效網址，請使用下方備用下載。'

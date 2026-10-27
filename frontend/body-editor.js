@@ -1,6 +1,7 @@
 // 正文標題沿用封面的Unicode色彩索引與文字光柵器，所有設定只更新本地草稿。
 (function(root){
   const C=typeof module!=='undefined'?require('./cover-editor.js'):root.StudioCover;
+  const T=typeof module!=='undefined'?require('./title-model.js'):root.StudioTitle;
   let layout=typeof module!=='undefined'?require('./body-layout.json'):null;
   const $=id=>document.getElementById(id),clone=v=>JSON.parse(JSON.stringify(v));
   function configure(value){if(value)layout=value;}
@@ -69,8 +70,10 @@
       for(const [id,field] of [['bodyStart','start'],['bodyEnd','end']])$(id).oninput=()=>{if(hooks.locked())return;
         const b=hooks.cover().body,range=span(b,hooks.prefix(),hooks.length()),value=Number($(id).value);if(!Number.isFinite(value))return;
         Object.assign(b,range,{auto_timing:false,[field]:Math.round(value*30)/30});fit(b,hooks.prefix(),hooks.length());hooks.change();};
-      $('bodyFollow').onchange=()=>{if(hooks.locked())return;const c=hooks.cover();if(!$('bodyFollow').checked)detach(c);else c.body.follow_cover=true;hooks.change();};
-      $('bodyTitle').oninput=()=>{if(hooks.locked()||hooks.cover().body.follow_cover)return;const b=hooks.cover().body;b.title=$('bodyTitle').value;b.highlights=[];this.selection=null;hooks.change();};
+      $('bodyFollow').onchange=()=>{if(hooks.locked()||hooks.cover().shared_title)return;const c=hooks.cover();if(!$('bodyFollow').checked)detach(c);else c.body.follow_cover=true;hooks.change();};
+      $('bodyTitle').oninput=()=>{if(hooks.locked()||hooks.cover().body.follow_cover)return;const c=hooks.cover(),b=c.body;
+        if(c.shared_title){try{T.setDisplay(c,'body',$('bodyTitle').value);}catch(e){hooks.status(e.message,true);return;}}else {b.title=$('bodyTitle').value;b.highlights=[];}
+        this.selection=null;hooks.change();};
       const capture=()=>{this.selection=C.selection($('bodyTitle'),this.selection);
         $('bodySelection').textContent=this.selection?'已選：'+Array.from(this.selection.value).slice(this.selection.start,this.selection.end).join(''):'請在正文標題輸入框反白要改色的文字';};
       for(const event of ['select','pointerup','keyup','blur'])$('bodyTitle')['on'+event]=capture;
@@ -83,6 +86,8 @@
     }
     refresh(){const c=this.hooks.cover();$('bodyPanel').hidden=!c?.body;if(!c?.body)return;const b=c.body,s=effective(c);
       for(const [id,k] of [['bodyEnabled','enabled'],['bodyLogo','logo_enabled'],['bodyFollow','follow_cover']])$(id).checked=b[k];
+      $('bodyFollow').disabled=this.hooks.locked()||!!c.shared_title;
+      $('bodyFollowLabel').textContent=c.shared_title?'已共用影片標題文字；兩邊樣式獨立':'連動封面文字與顏色（預設）';
       const range=span(b,this.hooks.prefix(),this.hooks.length());$('bodyAutoTime').checked=b.auto_timing??true;
       for(const [id,k] of [['bodyStart','start'],['bodyEnd','end']]){if(document.activeElement!==$(id))$(id).value=Number(range[k].toFixed(3));
         $(id).min=this.hooks.prefix();$(id).max=this.hooks.length();$(id).disabled=this.hooks.locked()||range.end===range.start;}
@@ -96,7 +101,7 @@
       for(const id of ['bodyTitle','bodyColor','bodySelectedColor','bodyApplyColor','bodyClearColors'])$(id).disabled=this.hooks.locked();
       this.selection=C.selection($('bodyTitle'),this.selection);
       const selected=this.selection?'已選：'+Array.from(this.selection.value).slice(this.selection.start,this.selection.end).join('')+'。':'';
-      $('bodySelection').textContent=selected+(b.follow_cover?'可在正文輸入框反白換色，顏色會同步封面；修改文字請到封面，或取消連動。':'在正文輸入框反白要改色的文字，再選色並套用。');
+      $('bodySelection').textContent=selected+(b.follow_cover?'可在正文輸入框反白換色，顏色會同步封面；修改文字請到封面，或取消連動。':(c.shared_title?'修改文字會同步封面；字色與換行只調整正文。':'')+'在正文輸入框反白要改色的文字，再選色並套用。');
       $('bodyColorPreview').replaceChildren();const palette=C.colors(s);Array.from(s.title).forEach((char,i)=>{const span=document.createElement('span');span.textContent=char;span.style.color=palette[i];$('bodyColorPreview').append(span);});
       $('bodySizeValue').textContent=`${b.font_size}px`;
       for(const [id,k] of [['bodyX','x'],['bodyY','y']])if(document.activeElement!==$(id))$(id).value=Number((b[k]*100).toFixed(2));
@@ -118,6 +123,6 @@
       if(selected){const r=this.bounds();ctx.save();ctx.strokeStyle='#eac181';ctx.lineWidth=4;ctx.setLineDash([12,8]);ctx.strokeRect(r.x-6,r.y-6,r.width+12,r.height+12);ctx.restore();}
     }
   }
-  const api={configure,newBody,upgrade,box,span,fit,visible,item,logoTiming,logoSpan,logoVisible,logoItem,effective,detach,validate,key,mountGuide,BodyEditor};
+  const api={configure,newBody,upgrade,box,span,fit,visible,item,logoTiming,logoSpan,logoVisible,logoItem,effective,detach,validate,key,mountGuide,alphaBounds,BodyEditor};
   if(typeof module!=='undefined')module.exports=api;else root.StudioBody=api;
 })(typeof window!=='undefined'?window:this);

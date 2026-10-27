@@ -4,10 +4,25 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>案例影片編輯器</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="quick-title.css">
 <script src="output-controller.js"></script>
 </head>
 <body>
 <section class="studio">
+  <section id="quickTitlePanel" class="asset-section" hidden>
+    <div class="strip-header"><strong>快速修改標題</strong><button id="qtFull">進入完整編輯器</button></div>
+    <p class="hint">只修改封面與正文的專案標題；照片、時間軸、其他文字與動畫維持原設定。輸出使用修改後版本。</p>
+    <div id="qtLinkPanel" hidden><p id="qtLinkHint" class="hint"></p>
+      <label class="field">封面標題元素<select id="qtCoverElement"><option value="project-cover-title">專案封面標題（project-cover-title）</option></select></label>
+      <label class="field">正文標題元素<select id="qtBodyElement"><option value="project-body-title">專案正文標題（project-body-title）</option></select></label>
+      <label class="field">採用哪一份文字<select id="qtTitleSource"><option value="cover">採用封面文字</option><option value="body">採用正文文字</option></select></label>
+      <button id="qtConfirmLink">確認以上兩個元素並建立共用標題</button>
+      <p class="hint">僅支援上述兩個既有標題欄位。若標題實際是一般文字標籤，請到完整編輯器整理；不會依相同文字搜尋取代。</p>
+    </div>
+    <label class="field">影片標題<input id="qtTitle" maxlength="160" aria-label="影片標題"></label>
+    <div class="row"><button id="qtCover">封面預覽</button><button id="qtBody">正文預覽</button><label>正文片段<select id="qtClip" aria-label="正文預覽片段"></select></label><label>比較<select id="qtCompare"><option value="edited">修改後版本</option><option value="original">原始版本（匯入快照）</option></select></label></div>
+    <p id="qtCompareHint" class="hint" role="status"></p><p id="qtMessage" class="hint" role="status"></p>
+  </section>
   <details id="tourPanel" class="asset-section" open hidden><summary>空間導覽 · 平面圖與房間</summary><p class="hint">輸入房名後點圖新增；選房間可改名／重新定位。灰點待確認，不進入影片。平面圖固定最上層，封面不顯示。</p><div class="row"><label>房間名稱<input id="tourRoomName" maxlength="40" value="客廳"></label><button id="tourRoomNew">新增房間（再點圖）</button><button id="tourRoomDelete">刪除選取房間</button></div><div class="row"><select id="tourSource" aria-label="重用導覽來源"></select><button id="tourAddClip">重用來源新增片段</button></div><p id="tourSourceHint" class="hint" role="status"></p><div id="tourRoomList" class="row"></div><p id="tourUsage" class="hint"></p><canvas id="tourMap" width="500" height="350" style="width:100%;max-width:500px;touch-action:none" aria-label="平面圖：點擊新增或重新定位房間"></canvas><p id="tourDeleteHint" class="hint" role="status"></p><button id="tourDeleteConfirm" hidden>確認刪除房間</button><button id="tourDeleteCancel" hidden>取消</button><div class="row"><label><input id="tourVisible" type="checkbox" checked>顯示平面圖</label><label>大小<input id="tourSize" type="range" min=".15" max=".5" step=".01"></label><label>透明度<input id="tourOpacity" type="range" min="0" max="1" step=".01"></label><label>紅點大小<input id="tourDot" type="range" min="6" max="24" step="1"></label></div></details>
   <section id="comparisonBank" hidden class="comparison-bank">
     <div class="strip-header"><strong>前後照片與配對</strong><button id="suggestPairs" class="primary">建議配對（不呼叫AI）</button><button id="autoPair">依順序自動配對</button></div>
@@ -35,6 +50,27 @@
       <progress id="recordProgress" value="0" max="1" hidden></progress>
       <div id="browserResult" hidden><a id="browserDownload" download="室內設計案例.mp4">下載瀏覽器 MP4</a><video id="browserVideo" controls playsinline></video></div>
     </section>
+    <aside id="quickSettings" class="controls" aria-label="快速標題排版" hidden>
+      <p class="hint">在上方「影片標題」反白文字，再分別套用封面或正文重點字色。排版區只調換行，不更動共用文字。</p>
+      <p id="qtSelection" class="hint"></p>
+      <details open><summary>封面標題排版</summary>
+        <label class="field">封面換行<textarea id="qtCoverWrap" rows="3" maxlength="165"></textarea></label>
+        <div class="row"><label>整段字色<input id="qtCoverColor" type="color"></label><label>重點字色<input id="qtCoverHighlight" type="color" value="#ffd34e"></label></div>
+        <button id="qtCoverApply">套用封面重點字色</button><button id="qtCoverClear">清除封面重點字色</button>
+        <label class="field">封面字級<input id="qtCoverFont" type="number" min="36" max="160" step="1"></label>
+        <div class="row"><label>水平位置（%）<input id="qtCoverX" type="number" min="0" max="100" step=".1"></label><label>垂直位置（%）<input id="qtCoverY" type="number" min="0" max="100" step=".1"></label></div>
+        <p id="qtCoverWarning" class="hint" role="status"></p>
+      </details>
+      <details open><summary>正文標題排版</summary>
+        <label class="field">正文換行<textarea id="qtBodyWrap" rows="3" maxlength="165"></textarea></label>
+        <div class="row"><label>整段字色<input id="qtBodyColor" type="color"></label><label>重點字色<input id="qtBodyHighlight" type="color" value="#ffd34e"></label></div>
+        <button id="qtBodyApply">套用正文重點字色</button><button id="qtBodyClear">清除正文重點字色</button>
+        <label class="field">正文字級<input id="qtBodyFont" type="number" min="36" max="240" step="1"></label>
+        <div class="row"><label>水平位置（%）<input id="qtBodyX" type="number" min="0" max="100" step=".1"></label><label>垂直位置（%）<input id="qtBodyY" type="number" min="0" max="100" step=".1"></label></div>
+        <p id="qtBodyWarning" class="hint" role="status"></p>
+      </details>
+      <p class="hint">可以直接拖曳畫布中的標題。安全區提示不輸出；系統只檢查文字範圍，不判斷是否遮擋人物或重要裝修。</p>
+    </aside>
     <aside class="controls" id="settingsPanel" aria-label="目前素材設定">
       <div id="selectionHeading" class="section-title" role="status"></div>
       <details id="coverPanel" hidden open>
@@ -58,7 +94,7 @@
         <label class="check"><input id="logoAutoTime" type="checkbox">LOGO全程顯示（自動跟隨正文長度）</label>
         <div class="row"><label class="field">LOGO開始（全片秒數）<input id="logoStart" type="number" min="0" max="120" step=".033333"></label><label class="field">LOGO結束（全片秒數）<input id="logoEnd" type="number" min="0" max="120" step=".033333"></label></div>
         <p id="logoTiming" class="hint"></p>
-        <label class="check"><input id="bodyFollow" type="checkbox">連動封面文字與顏色（預設）</label>
+        <label class="check"><input id="bodyFollow" type="checkbox"><span id="bodyFollowLabel">連動封面文字與顏色（預設）</span></label>
         <label class="check"><input id="bodyAutoTime" type="checkbox">正文全程顯示（自動跟隨影片長度）</label>
         <div class="row"><label class="field">正文開始（全片秒數）<input id="bodyStart" type="number" min="0" max="120" step=".033333"></label><label class="field">正文結束（全片秒數）<input id="bodyEnd" type="number" min="0" max="120" step=".033333"></label></div>
         <p id="bodyTiming" class="hint"></p>
@@ -70,7 +106,7 @@
         <label class="field" for="bodySize">正文字級 <output id="bodySizeValue"></output><input id="bodySize" type="range" min="36" max="240" step="1"></label>
         <div class="row"><label class="field">正文水平位置（%）<input id="bodyX" type="number" min="0" max="100" step=".1"></label><label class="field">正文垂直位置（%）<input id="bodyY" type="number" min="0" max="100" step=".1"></label></div>
         <button id="bodyResetPosition">恢復預設位置（較高）</button>
-        <p class="hint">直接拖曳畫布上的正文文字調位置，選取後可用方向鍵微調；預設位置已上移。下方時間軸調顯示時間。位置及字級獨立於封面，連動換色仍同步封面；LOGO位置維持原配置。</p>
+        <p class="hint">直接拖曳畫布上的正文文字調位置，選取後可用方向鍵微調；下方時間軸調整顯示時間。位置及字級獨立於封面；共用標題模式只連動文字，兩邊各自設定字色及換行。LOGO維持原配置。</p>
       </details>
       <details id="musicPanel">
         <summary>BGM · 預設1秒淡出</summary>
@@ -161,5 +197,5 @@
     <p class="hint">紅線為播放指針。正文標題、LOGO及PNG使用全片時間；照片標籤隨照片順序移動。正文與LOGO可分別拖曳及裁切，預設跟隨正文長度，手動改時間後會限制於正文範圍。</p>
   </section>
 </section>
-<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="tour-model.js"></script><script src="tour-editor.js"></script><script src="pairing.js"></script><script src="photo-history.js"></script><script src="content-version.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="editor.js"></script>
+<script src="animation.js"></script><script src="photo-layout.js"></script><script src="safe-area.js"></script><script src="comparison-model.js"></script><script src="tour-model.js"></script><script src="tour-editor.js"></script><script src="pairing.js"></script><script src="photo-history.js"></script><script src="content-version.js"></script><script src="draft-state.js"></script><script src="label-raster.js"></script><script src="label-timing.js"></script><script src="ai-import.js"></script><script src="timeline-model.js"></script><script src="overlay-model.js"></script><script src="timeline-ui.js"></script><script src="png-editor.js"></script><script src="comparison-editor.js"></script><script src="title-model.js"></script><script src="cover-editor.js"></script><script src="body-editor.js"></script><script src="music.js"></script><script src="quick-title.js"></script><script src="editor.js"></script>
 </body></html>

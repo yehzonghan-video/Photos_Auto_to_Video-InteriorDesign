@@ -67,6 +67,9 @@ def document(data, context):
     if raw_cover is None:body.update(enabled=False,logo_enabled=False)
     body['highlights']=[{**r,'color':r['color'].lower()} for r in ((raw_cover or {}).get('body') or {}).get('highlights',[])]
     cover['body']=body
+    if (raw_cover or {}).get('shared_title') is not None:
+        from .titles import normalized_link
+        cover['shared_title']=normalized_link(raw_cover['shared_title'])
     names={a['id']:a['name'] for a in context.get('assets',[])}
     def overlays(rows):return [{**normalize(o,'overlay'),'name':names.get(o.get('source'),o.get('name',''))} for o in rows]
     result=dict(schema='interior-content-v1',photos=photos,comparisons=clips,cover=cover,

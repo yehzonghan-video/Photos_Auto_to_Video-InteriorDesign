@@ -8,7 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 6
+EDITOR_UI_VERSION = 7
 
 
 def apply_editor_event(photos, event, session, revision, request=None):
@@ -46,6 +46,16 @@ def consume_editor_event(state, event):
     if nonce in seen:
         return
     state["editor_seen"] = (seen + [nonce])[-100:]
+    if event.get('action') in ('set_edit_mode','quick_original'):
+        if event.get('session')!=state.get('editor_session') or state.get('guard_request'):return
+        if event['action']=='set_edit_mode':
+            if event.get('mode') in ('full','quick'):state['edit_mode']=event['mode']
+        else:
+            from .quick_preview import receive
+            try:receive(state,event)
+            except Exception as exc:
+                state['_quick_preview_error']=(str(exc) if isinstance(exc,(ValueError,RuntimeError,OSError,TimeoutError)) else '') or '原始預覽無法產生，專案未修改。'
+        return
     if event.get('action')=='inspect_guard':
         from .protection import receive_probe
         receive_probe(state,event)
