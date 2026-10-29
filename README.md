@@ -63,7 +63,7 @@ py -3.12 -m venv .venv
 
 瀏覽器開啟 `http://localhost:8501`。上述命令直接使用虛擬環境內的 Python，不需要另外啟用環境。請先設定共用密碼，登入後即可手動製片；只有 AI 分析需要 Gemini 金鑰。若 `py` 找不到，安裝 Python 3.12 或將建立虛擬環境的命令改成可用的 Python 完整路徑。
 
-本次開發已建立 `.venv` 時，可直接使用 `start.ps1`。關閉終端或按 Ctrl+C 停止服務。
+本次開發已建立 `.venv` 時，可直接雙擊 `啟動本地.bat`，程式會啟動 Streamlit 並自動開啟瀏覽器；也可在 PowerShell 執行 `start.ps1`。關閉終端或按 Ctrl+C 停止服務。
 
 已安裝舊版專案時，先重新執行 `pip install -r requirements.txt`，再重啟 Streamlit，才能載入新增的 Google SDK。
 
