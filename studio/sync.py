@@ -8,7 +8,7 @@ from .music import validate_music
 from .versioning import refresh, project_version
 
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 8
+EDITOR_UI_VERSION = 9
 
 
 def apply_editor_event(photos, event, session, revision, request=None):

@@ -18,6 +18,9 @@ const StudioLabelTiming=require('../frontend/label-timing.js');
 const StudioVersion=require('../frontend/content-version.js');
 function environment(storage=new Map()) {
   const elements=new Map(),messages=[],listeners={},frames=new Map(),downloads=[];let serial=0,draws=0;
+  const fakeSetTimeout=()=>++serial,fakeClearTimeout=()=>{};
+  const SyncTransport=require('../frontend/sync-transport.js');
+  const StudioSyncTransport={...SyncTransport,watch:options=>SyncTransport.watch({...options,setTimer:fakeSetTimeout,clearTimer:fakeClearTimeout})};
   function element(tag='div') {
     const handlers={},ctx={font:'46px sans-serif',measureText:text=>({width:text.length*46}),
       roundRect(){},beginPath(){},fill(){},fillText(){},strokeText(){},fillRect(){},moveTo(){},lineTo(){},stroke(){},
@@ -38,12 +41,12 @@ function environment(storage=new Map()) {
   const window={parent:{postMessage(msg){messages.push(JSON.parse(JSON.stringify(msg)));}},addEventListener(name,fn){listeners[name]=fn;}};
   window.StudioTitle=require('../frontend/title-model.js');
   const context=vm.createContext({document,window,Image:FakeImage,ResizeObserver:class{observe(){}},
-    StudioOutput:require('../frontend/output-controller.js'),StudioTitle:window.StudioTitle,
+    StudioOutput:require('../frontend/output-controller.js'),StudioSyncTransport,StudioTitle:window.StudioTitle,
     StudioPairing:require('../frontend/pairing.js'),StudioPhotoHistory:require('../frontend/photo-history.js'),
     StudioTour:require('../frontend/tour-model.js'),
     StudioDraft:{DraftState,metadata},StudioVersion,StudioLabel,StudioPhoto,StudioAnimation,StudioAI,StudioTimeline,StudioOverlay,StudioComparison,StudioSafeArea,StudioMusic,StudioLabelTiming,crypto:webcrypto,console,
     requestAnimationFrame(fn){const id=++serial;frames.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
-    setTimeout(){return ++serial;},clearTimeout(){},performance:{now:()=>0},URL:{revokeObjectURL(){}},
+    setTimeout:fakeSetTimeout,clearTimeout:fakeClearTimeout,performance:{now:()=>0},URL:{revokeObjectURL(){}},
     sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}});
   vm.runInContext(fs.readFileSync('frontend/timeline-ui.js','utf8'),context);
   vm.runInContext(fs.readFileSync('frontend/png-editor.js','utf8'),context);

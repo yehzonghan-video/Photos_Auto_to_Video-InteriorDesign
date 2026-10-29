@@ -121,12 +121,15 @@ function synchronize(action='apply',request=null,width=null,outputOptions={}) {
   if(width!==null){event.output_protocol=3;event.width=width;event.zip_backup=action==='export'&&outputOptions.zip_backup===true;draft.pending.output=true;draft.pending.version=event.content_version;}
   persistDraft();syncStatus();
   return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{
-      waiters.delete(event.nonce);
-      if(draft.pending?.nonce===event.nonce){draft.pending=null;draft.dirty=true;persistDraft();syncStatus();}
-      reject(new Error('同步逾時，草稿已保留；請重新按下載ZIP或輸出影片。'));
-    },20000);
-    waiters.set(event.nonce,{resolve,reject,timer});
+    const transport=StudioSyncTransport.watch({
+      retry:attempt=>post('streamlit:setComponentValue',{value:{...event,transport_attempt:attempt},dataType:'json'}),
+      onSlow:()=>status('雲端同步較慢，仍在等待伺服器確認；草稿已保留，請勿重複按輸出。'),
+      onTimeout:()=>{
+        waiters.delete(event.nonce);
+        if(draft.pending?.nonce===event.nonce){draft.pending=null;draft.dirty=true;persistDraft();syncStatus();}
+        reject(new Error('雲端同步等待超過 2 分鐘，草稿已保留；請重新按下載ZIP或輸出影片。'));
+      }});
+    waiters.set(event.nonce,{resolve,reject,transport});
     post('streamlit:setComponentValue',{value:event,dataType:'json'});
   });
 }
@@ -262,7 +265,7 @@ window.addEventListener('message', async event => {
     if(result.matched) {
       if(result.success)outputs.ack(args.response);else if(outputs.intent?.id===args.response.nonce)outputs.fail(result.error);
       const waiter=waiters.get(args.response.nonce);
-      if(waiter){clearTimeout(waiter.timer);waiters.delete(args.response.nonce);
+      if(waiter){waiter.transport.cancel();waiters.delete(args.response.nonce);
         if(result.success)waiter.resolve();else waiter.reject(new Error(result.error));}
       if(result.error)status(result.error+' 草稿仍保留在此頁。',true);
     }
