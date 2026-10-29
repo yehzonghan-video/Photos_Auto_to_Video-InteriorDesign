@@ -20,7 +20,7 @@
     const ctx=canvas.getContext('2d');if(!ctx.getImageData)return [0,0,canvas.width,canvas.height];
     const {data}=ctx.getImageData(0,0,canvas.width,canvas.height);let left=canvas.width,right=0,top=canvas.height,bottom=0;
     for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++)if(data[(y*canvas.width+x)*4+3]){left=Math.min(left,x);right=Math.max(right,x+1);top=Math.min(top,y);bottom=Math.max(bottom,y+1);}
-    return right>left?[left,top,right,bottom]:[0,0,canvas.width,canvas.height];}
+    return right>left?[left,top,right,bottom]:[canvas.width/2,canvas.height/2,canvas.width/2,canvas.height/2];}
   function span(b,prefix,length){if(length-prefix<MIN-1e-8)return {start:prefix,end:prefix};
     if(b.auto_timing??true)return {start:prefix,end:length};
     const start=clamp(b.start,prefix,length-MIN),end=clamp(b.end,start+MIN,length);return {start,end};}

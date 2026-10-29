@@ -33,3 +33,8 @@ test('檔名不修改顯示標題，特殊字元、空白與保留名稱都有�
   }
   assert.ok(Array.from(T.filename('😀'.repeat(100),'zip')).length<=64);
 });
+test('共用封面與正文標題可以清空，輸出檔名使用安全預設值',()=>{
+  const c=make();T.setText(c,'');assert.equal(c.shared_title.text,'');assert.equal(c.title,'');assert.equal(c.body.title,'');
+  assert.deepEqual(c.highlights,[]);assert.deepEqual(c.body.highlights,[]);assert.equal(T.validate(c),null);
+  assert.equal(T.filename(T.title(c),'mp4'),'室內設計案例.mp4');
+});

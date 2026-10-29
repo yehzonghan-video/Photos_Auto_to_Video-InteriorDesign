@@ -737,6 +737,7 @@ test('第六階段：快速入口／預覽與未修改欄位不增加seq，修�
   assert.equal(run('draft.seq'),seq);assert.equal(run('draft.cover.shared_title'),undefined);
   get('qtTitle').value='18坪小宅超強收納';get('qtTitle').oninput();assert.equal(run('draft.cover.title'),'18坪小宅超強收納');assert.equal(run('draft.cover.body.title'),'18坪小宅超強收納');
   assert.equal(run('JSON.stringify(draft.rows)'),before);assert.equal(run('draft.cover.body.font_size'),100);assert.equal(env.changes().length,0);
+  get('qtTitle').value='';get('qtTitle').oninput();assert.equal(run('draft.cover.title'),'');assert.equal(run('draft.cover.body.title'),'');assert.equal(run('validProject()'),true);
 });
 
 test('第六階段：沒有明確關聯須確認固定ID，不以相同文字或一般標籤自動替換',async()=>{

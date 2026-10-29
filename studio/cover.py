@@ -51,8 +51,8 @@ def title_box(cover):
 
 def validate_title(raw, required, context, max_font_size=160):
     title=raw.get('title','')
-    if not isinstance(title,str) or (required and not title.strip()) or len(title.replace('\n',''))>80 or title.count('\n')>5:
-        raise ValueError(f'{context}標題需為1～80字，最多6行。')
+    if not isinstance(title,str) or len(title.replace('\n',''))>80 or title.count('\n')>5:
+        raise ValueError(f'{context}標題可留空，最多80字／6行。')
     ranges=raw.get('highlights',[])
     if not isinstance(ranges,list) or len(ranges)>80:raise ValueError(f'{context}局部字色過多。')
     highlights=[]

@@ -116,12 +116,13 @@ class BodyTests(unittest.TestCase):
 
     def test_atomic_sync_legacy_events_and_payload_cache(self):
         p=photo();c=validate_cover(new_cover(),[p]);state=dict(photos=[p],editor_session='s',revision=1,cover=c)
-        bad=copy.deepcopy(c);bad['body']['follow_cover']=False;bad['body']['title']=''
+        bad=copy.deepcopy(c);bad['body']['follow_cover']=False;bad['body']['title']='';bad['body']['highlights']=[]
         row=p.metadata();row['duration']=2
         event=dict(nonce='bad',session='s',base_revision=1,action='apply',photos=[row],cover=bad)
-        consume_editor_event(state,event);self.assertFalse(state['editor_response']['ok']);self.assertEqual(p.duration,1)
-        c['body'].update(follow_cover=False,title='正文獨立');event.update(nonce='good',cover=c)
         consume_editor_event(state,event);self.assertTrue(state['editor_response']['ok']);self.assertEqual(p.duration,2)
+        self.assertEqual(state['cover']['body']['title'],'');self.assertIsNone(body_layer(state['cover'],include_logo=False).getbbox())
+        c['body'].update(follow_cover=False,title='正文獨立');event.update(nonce='good',cover=c)
+        event['base_revision']=2;consume_editor_event(state,event);self.assertTrue(state['editor_response']['ok']);self.assertEqual(p.duration,2)
         legacy={k:v for k,v in c.items() if k!='body'}
         event.update(nonce='legacy',base_revision=2,cover=legacy);consume_editor_event(state,event)
         self.assertEqual(state['cover']['body']['title'],'正文獨立')

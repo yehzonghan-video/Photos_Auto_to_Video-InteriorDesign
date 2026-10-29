@@ -15,7 +15,7 @@
   function ensureSource(c,photos){if(!c||photos.some(p=>p.id===c.photo_id))return false;
     c.photo_id=(photos.find(p=>p.role==='after')||photos[0])?.id||'';return true;}
   function validate(c,photos,maxFontSize=160){if(!c)return null;
-    if(typeof c.enabled!=='boolean'||typeof c.title!=='string'||(c.enabled&&!c.title.trim())||Array.from(c.title.replace(/\n/g,'')).length>80||c.title.split('\n').length>6)return '封面標題需為1～80字，最多6行。';
+    if(typeof c.enabled!=='boolean'||typeof c.title!=='string'||Array.from(c.title.replace(/\n/g,'')).length>80||c.title.split('\n').length>6)return '封面標題可留空，最多80字／6行。';
     if(c.enabled&&photos.length&&!photos.some(p=>p.id===c.photo_id))return '請選擇封面照片。';
     const hex=v=>/^#[0-9a-fA-F]{6}$/.test(v);
     if(!hex(c.color)||!Number.isInteger(c.font_size)||c.font_size<36||c.font_size>maxFontSize||!Array.isArray(c.highlights)||c.highlights.length>80)return '封面樣式設定不正確。';

@@ -15,7 +15,7 @@ from studio.access import require_password, logout
 st.set_page_config(page_title="室內案例影片工作室", page_icon="◩", layout="wide")
 require_password()
 try:
-    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 7:
+    if bootstrap.BGM_API_VERSION != 10 or getattr(bootstrap, 'EDITOR_UI_VERSION', None) != 8:
         importlib.reload(bootstrap)  # Cloud可能連相容性載入器也留著上一版。
     component_api, export_api, sync_api = bootstrap.video_modules()
     from studio.rendering import font_path,template_config

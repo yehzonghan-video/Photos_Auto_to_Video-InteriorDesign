@@ -85,6 +85,12 @@ class CoverTests(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ValueError):validate_cover({**raw,**change},[p])
         self.assertEqual(validate_cover({**raw,'enabled':False,'photo_id':'missing'},[])['photo_id'],'')
 
+    def test_enabled_cover_title_can_be_empty(self):
+        p=photo();raw={**new_cover(),'title':'','highlights':[]}
+        cover=validate_cover(raw,[p]);self.assertEqual(cover['title'],'')
+        self.assertIsNone(title_tile(cover).getbbox())
+        self.assertEqual(cover_frame(cover,[p]).size,(1080,1920))
+
     def test_title_fits_safe_area_outline_and_complete_landscape_photo(self):
         p=photo();c=validate_cover({**new_cover(),'title':'老屋翻新\n最低88萬起','highlights':[dict(start=7,end=9,color='#ff0000')]},[p])
         tile=title_tile(c);bbox=tile.getbbox();self.assertGreaterEqual(bbox[0],0);self.assertLessEqual(bbox[2],LAYOUT['title']['width']);self.assertLessEqual(bbox[3],LAYOUT['title']['height'])

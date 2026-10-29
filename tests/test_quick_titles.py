@@ -68,6 +68,13 @@ class QuickTitleTests(unittest.TestCase):
                 self.assertEqual(filename(raw,kind),actual);self.assertNotIn('/',actual);self.assertNotIn('\n',actual)
         c=edit(fixture()['cover']);original=deepcopy(c);self.assertEqual(filename(project_title(c),'mp4'),'18坪小宅超強收納.mp4');self.assertEqual(c,original)
 
+    def test_empty_shared_title_roundtrip_uses_fallback_filename(self):
+        s=fixture('items');c=edit(s['cover']);c['shared_title'].update(text='',cover_breaks=[],body_breaks=[])
+        c.update(title='',highlights=[]);c['body'].update(title='',highlights=[]);apply_title(s,c)
+        self.assertEqual(project_title(s['cover']),'');self.assertEqual(filename(project_title(s['cover']),'mp4'),'室內設計案例.mp4')
+        restored=load_archive(build_archive(s));self.assertEqual(restored['cover']['shared_title']['text'],'')
+        self.assertEqual(restored['cover']['title'],'');self.assertEqual(restored['cover']['body']['title'],'')
+
     def test_original_snapshot_frames_remain_fixed_and_readonly_events_no_revision(self):
         s=fixture('items');quick_preview.capture(s);scene=quick_preview.scenes(s['_quick_original'])[0]
         old_image,_=quick_preview.frame(s['_quick_original'],scene['id']);old_bytes=old_image.tobytes();apply_title(s,edit(s['cover']));rev=s['revision']

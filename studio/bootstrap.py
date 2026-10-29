@@ -7,7 +7,7 @@ import threading
 LOGGER = logging.getLogger('interior_studio.runtime')
 _LOAD_LOCK = globals().get('_LOAD_LOCK',threading.RLock())
 BGM_API_VERSION = 10
-EDITOR_UI_VERSION = 7
+EDITOR_UI_VERSION = 8
 
 
 def _compatible(module, function, music_arguments=False):
